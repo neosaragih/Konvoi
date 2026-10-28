@@ -1,0 +1,48 @@
+name: iOS
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Install CocoaPods
+        working-directory: ios
+        run: pod install
+
+      - name: Build simulator app (unsigned)
+        working-directory: ios
+        run: |
+          xcodebuild \
+            -workspace Konvoi.xcworkspace \
+            -scheme Konvoi \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Upload simulator app
+        uses: actions/upload-artifact@v4
+        with:
+          name: konvoi-ios-simulator
+          path: ios/build/Build/Products/Debug-iphonesimulator/Konvoi.app
+          if-no-files-found: error

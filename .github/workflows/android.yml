@@ -1,0 +1,79 @@
+name: Android development APK
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build debug and development APKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-37" \
+            "build-tools;37.0.0" \
+            "ndk;27.1.12297006"
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Build APKs
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Name APKs
+        run: |
+          mkdir -p artifacts
+          cp android/app/build/outputs/apk/debug/app-debug.apk \
+            "artifacts/konvoi-debug-${GITHUB_SHA::7}.apk"
+          cp android/app/build/outputs/apk/release/app-release.apk \
+            "artifacts/konvoi-dev-${GITHUB_SHA::7}.apk"
+
+      - name: Upload debug APK (needs Metro)
+        uses: actions/upload-artifact@v4
+        with:
+          name: konvoi-debug-apk
+          path: artifacts/konvoi-debug-*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload development APK (bundled JS, debug-signed)
+        uses: actions/upload-artifact@v4
+        with:
+          name: konvoi-dev-apk
+          path: artifacts/konvoi-dev-*.apk
+          if-no-files-found: error
+          retention-days: 14
