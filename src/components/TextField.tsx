@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -14,13 +14,34 @@ interface TextFieldProps extends Omit<TextInputProps, 'style'> {
   error?: string | null;
 }
 
-export function TextField({ label, helper, error, ...input }: TextFieldProps) {
+export function TextField({
+  label,
+  helper,
+  error,
+  onFocus,
+  onBlur,
+  ...input
+}: TextFieldProps) {
+  const [focused, setFocused] = useState(false);
+
   return (
     <View style={styles.wrap}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
         placeholderTextColor={colors.muted}
-        style={[styles.input, error ? styles.inputError : null]}
+        onFocus={e => {
+          setFocused(true);
+          onFocus?.(e);
+        }}
+        onBlur={e => {
+          setFocused(false);
+          onBlur?.(e);
+        }}
+        style={[
+          styles.input,
+          focused && styles.inputFocused,
+          error ? styles.inputError : null,
+        ]}
         {...input}
       />
       {error ? (
@@ -39,33 +60,36 @@ const styles = StyleSheet.create({
   label: {
     color: colors.text,
     fontSize: typography.small,
-    fontWeight: '700',
-    marginBottom: spacing.sm,
-    letterSpacing: 0.3,
+    fontWeight: '500',
+    marginBottom: spacing.sm - 2,
+    letterSpacing: -0.1,
   },
   input: {
-    minHeight: 52,
+    minHeight: 44,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
     color: colors.text,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.md,
     fontSize: typography.body,
+  },
+  inputFocused: {
+    borderColor: colors.primary,
   },
   inputError: {
     borderColor: colors.danger,
   },
   helper: {
     color: colors.muted,
-    fontSize: typography.small,
-    marginTop: spacing.sm,
-    lineHeight: 18,
+    fontSize: typography.tiny,
+    marginTop: spacing.xs + 1,
+    lineHeight: 16,
   },
   error: {
     color: colors.danger,
-    fontSize: typography.small,
-    marginTop: spacing.sm,
-    lineHeight: 18,
+    fontSize: typography.tiny,
+    marginTop: spacing.xs + 1,
+    lineHeight: 16,
   },
 });

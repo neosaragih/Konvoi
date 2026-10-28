@@ -184,7 +184,7 @@ export function JoinRoomScreen({ app }: JoinRoomScreenProps) {
           label={
             scanningQr
               ? 'Membuka Kamera…'
-              : '📷 Scan QR Code Kamera (Tanpa PIN)'
+              : 'Scan QR Code Kamera (Tanpa PIN)'
           }
           onPress={handleScanQr}
           busy={scanningQr}
@@ -274,7 +274,7 @@ export function JoinRoomScreen({ app }: JoinRoomScreenProps) {
         >
           <Text style={styles.sectionTitle}>Gabung manual (IP & Port)</Text>
           <Badge
-            label={showManual ? 'Tutup ▲' : 'Buka ▼'}
+            label={showManual ? 'Tutup' : 'Buka'}
             tone="neutral"
           />
         </Pressable>

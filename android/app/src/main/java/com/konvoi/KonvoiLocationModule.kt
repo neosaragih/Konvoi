@@ -1,10 +1,13 @@
 package com.konvoi
 
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.media.AudioManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -127,7 +130,7 @@ class KonvoiLocationModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun scanQrCode(promise: Promise) {
-        val activity = currentActivity
+        val activity = reactContext.currentActivity
         if (activity == null) {
             promise.reject("NO_ACTIVITY", "Aktivitas Android tidak aktif.")
             return
@@ -137,7 +140,7 @@ class KonvoiLocationModule(private val reactContext: ReactApplicationContext) :
                 val options = GmsBarcodeScannerOptions.Builder()
                     .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
                     .build()
-                val scanner = GmsBarcodeScanning.getClient(activity, options)
+                val scanner = GmsBarcodeScanning.getClient(activity as Context, options)
                 scanner.startScan()
                     .addOnSuccessListener { barcode ->
                         promise.resolve(barcode.rawValue ?: "")
@@ -151,6 +154,38 @@ class KonvoiLocationModule(private val reactContext: ReactApplicationContext) :
             } catch (e: Exception) {
                 promise.reject("SCANNER_ERROR", e.message ?: "Scanner QR tidak tersedia di perangkat ini.")
             }
+        }
+    }
+
+    @ReactMethod
+    fun startForegroundService(title: String, message: String, promise: Promise) {
+        try {
+            val intent = Intent(reactContext, KonvoiForegroundService::class.java).apply {
+                action = KonvoiForegroundService.ACTION_START
+                putExtra(KonvoiForegroundService.EXTRA_TITLE, title)
+                putExtra(KonvoiForegroundService.EXTRA_MESSAGE, message)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                reactContext.startForegroundService(intent)
+            } else {
+                reactContext.startService(intent)
+            }
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("SERVICE_ERROR", e.message ?: "Gagal memulai background service.")
+        }
+    }
+
+    @ReactMethod
+    fun stopForegroundService(promise: Promise) {
+        try {
+            val intent = Intent(reactContext, KonvoiForegroundService::class.java).apply {
+                action = KonvoiForegroundService.ACTION_STOP
+            }
+            reactContext.startService(intent)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("SERVICE_ERROR", e.message ?: "Gagal menghentikan background service.")
         }
     }
 

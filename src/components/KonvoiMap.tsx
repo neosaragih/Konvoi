@@ -85,7 +85,7 @@ export function KonvoiMap({ markers, center, style }: KonvoiMapProps) {
           markers.map(item => (
             <View key={item.id} style={styles.markerBadge}>
               <Text style={[styles.markerText, item.isSelf && styles.selfText]}>
-                {item.isSelf ? '📍 Anda' : `🏍️ ${item.name}`}:{' '}
+                {item.isSelf ? 'Anda' : item.name}:{' '}
                 {item.lat.toFixed(5)}, {item.lon.toFixed(5)}
                 {typeof item.distanceMeters === 'number'
                   ? ` · ${

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, spacing, typography } from '../theme/theme';
+import { colors, radius, spacing, typography } from '../theme/theme';
 
 interface ScreenHeaderProps {
   title: string;
@@ -22,10 +22,13 @@ export function ScreenHeader({
           accessibilityRole="button"
           accessibilityLabel="Kembali"
           onPress={onBack}
-          hitSlop={12}
-          style={styles.back}
+          hitSlop={8}
+          style={({ pressed }) => [
+            styles.back,
+            pressed && styles.backPressed,
+          ]}
         >
-          <Text style={styles.backLabel}>‹ Kembali</Text>
+          <Text style={styles.backLabel}>Kembali</Text>
         </Pressable>
       ) : null}
       <View style={styles.row}>
@@ -45,12 +48,22 @@ const styles = StyleSheet.create({
   },
   back: {
     alignSelf: 'flex-start',
+    backgroundColor: colors.surfaceAlt,
+    borderColor: '#3F3F46',
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
     marginBottom: spacing.md,
   },
+  backPressed: {
+    opacity: 0.8,
+  },
   backLabel: {
-    color: colors.muted,
-    fontSize: typography.body,
-    fontWeight: '600',
+    color: colors.text,
+    fontSize: typography.small,
+    fontWeight: '500',
+    letterSpacing: -0.1,
   },
   row: {
     flexDirection: 'row',
@@ -63,14 +76,14 @@ const styles = StyleSheet.create({
   title: {
     color: colors.text,
     fontSize: typography.title,
-    fontWeight: '800',
-    letterSpacing: -0.4,
+    fontWeight: '700',
+    letterSpacing: -0.5,
   },
   subtitle: {
     color: colors.muted,
-    fontSize: typography.body,
-    lineHeight: 23,
-    marginTop: spacing.sm,
+    fontSize: typography.small,
+    lineHeight: 20,
+    marginTop: spacing.xs,
   },
   right: {
     paddingTop: spacing.xs,

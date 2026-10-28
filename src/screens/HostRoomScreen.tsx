@@ -236,7 +236,7 @@ export function HostRoomScreen({ app }: HostRoomScreenProps) {
             Detail Teknis (IP, Port, PIN)
           </Text>
           <Badge
-            label={showDetails ? 'Tutup ▲' : 'Buka ▼'}
+            label={showDetails ? 'Tutup' : 'Buka'}
             tone="neutral"
           />
         </Pressable>

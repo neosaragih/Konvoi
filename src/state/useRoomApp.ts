@@ -236,7 +236,32 @@ export function useRoomApp(): RoomApp {
     advertiser?.stop().catch(() => {});
   }, []);
 
+  const startForegroundNotification = useCallback(
+    (title: string, message: string) => {
+      if (
+        Platform.OS === 'android' &&
+        NativeModules.KonvoiLocationModule?.startForegroundService
+      ) {
+        NativeModules.KonvoiLocationModule.startForegroundService(
+          title,
+          message,
+        ).catch(() => {});
+      }
+    },
+    [],
+  );
+
+  const stopForegroundNotification = useCallback(() => {
+    if (
+      Platform.OS === 'android' &&
+      NativeModules.KonvoiLocationModule?.stopForegroundService
+    ) {
+      NativeModules.KonvoiLocationModule.stopForegroundService().catch(() => {});
+    }
+  }, []);
+
   const disposeGuest = useCallback(() => {
+    stopForegroundNotification();
     locationService.stopTracking();
     setLocationSharingActive(false);
     clearJoinTimer();
@@ -245,9 +270,10 @@ export function useRoomApp(): RoomApp {
     const session = guestSessionRef.current;
     guestSessionRef.current = null;
     session?.close();
-  }, [clearJoinTimer, clearReconnectTimer, stopVoice]);
+  }, [clearJoinTimer, clearReconnectTimer, stopForegroundNotification, stopVoice]);
 
   const disposeHost = useCallback(() => {
+    stopForegroundNotification();
     clearReconnectTimer();
     locationService.stopTracking().catch(() => {});
     setLocationSharingActive(false);
@@ -261,7 +287,7 @@ export function useRoomApp(): RoomApp {
       closingHostRef.current = false;
     }
     stopAdvertiser();
-  }, [clearReconnectTimer, stopAdvertiser, stopVoice]);
+  }, [clearReconnectTimer, stopAdvertiser, stopForegroundNotification, stopVoice]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -348,6 +374,10 @@ export function useRoomApp(): RoomApp {
           setReconnecting(false);
           setBusy(false);
           setScreen('room');
+          startForegroundNotification(
+            'Konvoi Terhubung',
+            `Terhubung di rombongan ${state.roomName}`,
+          );
           if (lastJoinedRef.current?.voiceWasActive) {
             startVoiceRef.current().catch(() => {});
           }
@@ -416,7 +446,7 @@ export function useRoomApp(): RoomApp {
         default:
           break;
       }
-    }, [clearJoinTimer, clearReconnectTimer, disposeGuest, stopVoice]);
+    }, [clearJoinTimer, clearReconnectTimer, disposeGuest, startForegroundNotification, stopVoice]);
 
   const voiceRosterIds = useMemo(
     () => (room?.voiceParticipants ?? []).map(entry => entry.participantId),
@@ -476,9 +506,13 @@ export function useRoomApp(): RoomApp {
       },
     });
 
-    // Request Android microphone permission
     if (Platform.OS === 'android') {
       try {
+        if (Platform.Version >= 33) {
+          await PermissionsAndroid.request(
+            'android.permission.POST_NOTIFICATIONS' as any,
+          );
+        }
         const granted = await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
           {
@@ -529,8 +563,11 @@ export function useRoomApp(): RoomApp {
         }
         return;
       }
-      setVoiceActive(true);
-    } catch {
+      
+      startForegroundNotification(
+        'Konvoi Interkom Aktif',
+        'Terhubung dalam rombongan · Interkom suara aktif',
+      );
       manager.stop();
       if (voiceRef.current === manager) {
         voiceRef.current = null;
@@ -550,11 +587,17 @@ export function useRoomApp(): RoomApp {
         setVoiceBusy(false);
       }
     }
-  }, [room]);
+  }, [room, startForegroundNotification]);
 
   const leaveVoice = useCallback(() => {
     stopVoice(true);
-  }, [stopVoice]);
+    if (room?.roomName) {
+      startForegroundNotification('Konvoi Terhubung', 'Terhubung di rombongan ' + (room?.roomName ?? ''),
+      );
+    } else {
+      stopForegroundNotification();
+    }
+  }, [room?.roomName, startForegroundNotification, stopForegroundNotification, stopVoice]);
 
   const toggleMute = useCallback(() => {
     if (!voiceRef.current || !room?.selfId) {
@@ -581,12 +624,20 @@ export function useRoomApp(): RoomApp {
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', state => {
-      if (state === 'background' && voiceRef.current) {
-        stopVoice(true);
+      if (state === 'background' || state === 'inactive') {
+        if (voiceRef.current) {
+          startForegroundNotification(
+            'Konvoi Interkom Aktif',
+            'Suara dan koneksi rombongan tetap aktif di latar belakang',
+          );
+        } else if (room?.status === 'joined') {
+          startForegroundNotification('Konvoi Terhubung', 'Terhubung di rombongan ' + (room?.roomName ?? ''),
+          );
+        }
       }
     });
     return () => subscription.remove();
-  }, [stopVoice]);
+  }, [room?.roomName, room?.status, startForegroundNotification]);
 
   const createRoom = useCallback(
     async (input: CreateRoomInput) => {
@@ -672,9 +723,9 @@ export function useRoomApp(): RoomApp {
           advertised,
         });
         setGuest(null);
-        setRoom(session.room.getState());
-        setScreen('host');
-      } catch {
+        
+        startForegroundNotification('Konvoi Host Aktif', 'Ruangan ' + config.roomName + ' aktif sebagai host',
+        );
         disposeHost();
         setHost(null);
         setRoom(null);
@@ -687,7 +738,7 @@ export function useRoomApp(): RoomApp {
         }
       }
     },
-    [disposeHost, handleHostState],
+    [disposeHost, handleHostState, startForegroundNotification],
   );
 
   const joinRoom = useCallback(

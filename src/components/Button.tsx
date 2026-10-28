@@ -48,7 +48,7 @@ export function Button({
       ]}
     >
       {busy ? (
-        <ActivityIndicator color={spinnerColor} />
+        <ActivityIndicator color={spinnerColor} size="small" />
       ) : (
         <Text style={[styles.label, labelStyles[variant]]}>{label}</Text>
       )}
@@ -58,7 +58,7 @@ export function Button({
 
 const styles = StyleSheet.create({
   base: {
-    minHeight: 52,
+    minHeight: 46,
     borderRadius: radius.md,
     paddingHorizontal: spacing.lg,
     alignItems: 'center',
@@ -67,11 +67,12 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: typography.body,
-    fontWeight: '700',
-    letterSpacing: 0.2,
+    fontWeight: '600',
+    letterSpacing: -0.2,
   },
   pressed: {
-    opacity: 0.82,
+    opacity: 0.88,
+    transform: [{ scale: 0.985 }],
   },
   disabled: {
     opacity: 0.45,
@@ -85,10 +86,10 @@ const variantStyles: Record<ButtonVariant, ViewStyle> = {
   },
   secondary: {
     backgroundColor: colors.surfaceAlt,
-    borderColor: colors.border,
+    borderColor: '#3F3F46',
   },
   danger: {
-    backgroundColor: colors.dangerSurface,
+    backgroundColor: colors.danger,
     borderColor: colors.danger,
   },
   ghost: {
@@ -100,6 +101,6 @@ const variantStyles: Record<ButtonVariant, ViewStyle> = {
 const labelStyles: Record<ButtonVariant, { color: string }> = {
   primary: { color: colors.onPrimary },
   secondary: { color: colors.text },
-  danger: { color: colors.danger },
+  danger: { color: '#FFFFFF' },
   ghost: { color: colors.muted },
 };
