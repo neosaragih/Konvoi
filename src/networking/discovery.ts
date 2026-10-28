@@ -22,6 +22,7 @@ export interface DiscoveredRoom {
   host: string;
   port: number;
   addresses: string[];
+  pin?: string;
 }
 
 export interface RoomDiscoveryHandlers {
@@ -99,6 +100,7 @@ export function toDiscoveredRoom(service: Service): DiscoveredRoom | null {
     host,
     port: service.port,
     addresses: allAddresses,
+    ...(typeof txt.pin === 'string' && txt.pin.length > 0 ? { pin: txt.pin } : {}),
   };
 }
 
@@ -210,6 +212,7 @@ export interface RoomAdvertisement {
   roomId: string;
   roomName: string;
   port: number;
+  pin?: string;
 }
 
 export interface RoomAdvertiserHandlers {
@@ -238,6 +241,7 @@ export class RoomAdvertiser {
           room: advertisement.roomId,
           name: advertisement.roomName,
           proto: PROTOCOL_VERSION,
+          ...(advertisement.pin ? { pin: advertisement.pin } : {}),
         },
       });
       if (this.stopped) {

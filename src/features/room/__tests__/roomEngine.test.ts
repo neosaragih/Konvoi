@@ -142,7 +142,7 @@ describe('RoomEngine join', () => {
       selfId: 'p1',
       hostId: 'host',
       roomName: 'Konvoi',
-      voiceCapacity: 6,
+      voiceCapacity: 16,
     });
     expect(accepted?.participants.map(participant => participant.id)).toEqual([
       'host',

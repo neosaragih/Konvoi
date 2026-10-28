@@ -76,6 +76,10 @@ function createFakeApp(overrides: Partial<RoomApp> = {}): RoomApp {
     stopDiscovery: jest.fn(),
     dismissError: jest.fn(),
     dismissNotice: jest.fn(),
+    locationSharingActive: false,
+    reconnecting: false,
+    startLocationSharing: jest.fn(async () => {}),
+    stopLocationSharing: jest.fn(),
     ...overrides,
   };
 }
