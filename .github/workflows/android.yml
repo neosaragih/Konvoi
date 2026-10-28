@@ -36,10 +36,13 @@ jobs:
 
       - name: Install Android SDK packages
         run: |
-          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
-          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -n 1)"
+          fi
           if [ ! -x "$SDKMANAGER" ]; then
-            echo "sdkmanager not found at $SDKMANAGER" >&2
+            echo "sdkmanager not found under $SDK_ROOT" >&2
             exit 1
           fi
           yes | "$SDKMANAGER" --licenses > /dev/null
