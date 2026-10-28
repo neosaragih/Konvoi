@@ -9,16 +9,16 @@ Indonesian UI. Android and iOS.
 
 ## Current status
 
-| Area                                                       | State                                                   |
-| ---------------------------------------------------------- | ------------------------------------------------------- |
-| Protocol (NDJSON v1), validators, host room engine         | Implemented, unit-tested                                |
-| TCP host server + guest client (`react-native-tcp-socket`) | Implemented, **not device-tested**                      |
-| mDNS discovery + advertising (`react-native-zeroconf`)     | Implemented, **not device-tested**                      |
-| App screens, navigation, room lifecycle                    | Implemented                                             |
-| WebRTC audio mesh (`react-native-webrtc`)                  | Implemented, **not device-tested**; mic is opt-in       |
-| GPS + live location                                        | **Not implemented** — protocol and host relay are ready |
-| Offline MapLibre map pack                                  | **Not implemented** — no online fallback                |
-| Native builds                                              | GitHub Actions workflows authored, **never run yet**    |
+| Area                                                       | State                                                     |
+| ---------------------------------------------------------- | --------------------------------------------------------- |
+| Protocol (NDJSON v1), validators, host room engine         | Implemented, unit-tested                                  |
+| TCP host server + guest client (`react-native-tcp-socket`) | Implemented, **not device-tested**                        |
+| mDNS discovery + advertising (`react-native-zeroconf`)     | Implemented, **not device-tested**                        |
+| App screens, navigation, room lifecycle                    | Implemented                                               |
+| WebRTC audio mesh (`react-native-webrtc`)                  | Implemented, **not device-tested**; mic is opt-in         |
+| GPS + live location                                        | **Not implemented** — protocol and host relay are ready   |
+| Offline MapLibre map pack                                  | **Not implemented** — no online fallback                  |
+| Native builds                                              | GitHub Actions green: Checks, Android APKs, iOS simulator |
 
 Unit tests and CI builds are not device validation. mDNS, TCP reachability,
 client isolation, GPS, Bluetooth routing, WebRTC media, and offline map
@@ -47,6 +47,10 @@ GitHub Actions:
 - `.github/workflows/ios.yml` — unsigned simulator build, uploads
   `konvoi-ios-simulator`.
 - `.github/workflows/ci.yml` — lint, typecheck, Jest.
+
+The latest green **Android development APK** run is in the repository's Actions
+tab; download the `konvoi-dev-apk` artifact and install it on a phone. It has
+the JS bundle inside, so it does not need Metro.
 
 No release signing is configured. Android release builds need a keystore; iOS
 device/release builds need Apple certificates and provisioning profiles. Keep

@@ -30,7 +30,9 @@ Konvoi is a **voice-first** React Native app: the host phone runs a room server 
 - `.github/workflows/ci.yml` — `npm ci`, lint, typecheck, Jest on Ubuntu.
 - `.github/workflows/android.yml` — Ubuntu + JDK 17 + Android SDK, `./gradlew :app:assembleDebug :app:assembleRelease`, uploads `konvoi-debug-apk` (needs Metro) and `konvoi-dev-apk` (bundled JS, debug-signed). The dev APK is not production-signed.
 - `.github/workflows/ios.yml` — macOS + CocoaPods, unsigned simulator build, uploads `konvoi-ios-simulator`.
-- Workflows are authored but **have not run yet** (no remote/commit). First push will be their first execution.
+- All three workflows run on GitHub and passed on `main` (2026-10-28): Checks, Android (debug + dev APK), iOS simulator. iOS device builds are still unverified.
+- Android API 37 installs as `platforms;android-37.0`; `platforms;android-37` does not exist. AGP 9.2 resolves `compileSdk 37` to the `android-37.0` hash, so install that exact package.
+- `android/gradle.properties` keeps `android.newDsl=false` and `android.builtInKotlin=false` so third-party Gradle scripts using the old DSL still configure. Revisit before AGP 10.
 - No release signing is configured. Android release needs a keystore; iOS device/release builds need Apple certificates/profiles. Keep secrets in GitHub Secrets, never in the repo.
 - CI proves compilation, not runtime behavior. If a native module breaks a build, fix it or document the blocker; don't delete/disable the workflow to get green.
 
@@ -41,7 +43,7 @@ Konvoi is a **voice-first** React Native app: the host phone runs a room server 
 - **Wire format:** UTF-8 NDJSON in `src/networking/ndjsonFramer.ts`. Byte-level, per-connection buffer, max frame size, resync after oversized lines. A TCP chunk is not a message.
 - **Protocol:** `src/protocol/{messageTypes,validators,protocolVersion}.ts`. Host assigns participant IDs and timestamps; clients never supply identity. Validate on both ends.
 - **Voice mesh:** `src/voice/voiceSignaling.ts`. For each pair, the lexicographically smaller participant ID offers; the other answers. Signaling goes through the host's TCP room; media is P2P WebRTC with `iceServers: []`.
-- **Installed native modules:** `react-native-tcp-socket` 6.4.3, `react-native-zeroconf` 0.17.6. **Planned:** `react-native-webrtc`, MapLibre, geolocation. Add one at a time, verify RN 0.88/New Architecture support, and let CI prove it compiles.
+- **Installed native modules:** `react-native-tcp-socket` 6.4.3, `react-native-zeroconf` 0.17.6, `react-native-webrtc` 155.0.1. **Planned:** MapLibre, geolocation. Add one at a time, verify RN 0.88/New Architecture support, and let CI prove it compiles.
 - **Tests:** `src/**/__tests__/*.test.ts`; protocol/engine tests must not import native modules.
 
 ## Traps
