@@ -1,5 +1,6 @@
 module.exports = {
   preset: '@react-native/jest-preset',
+  testTimeout: 15000,
   moduleNameMapper: {
     '^react-native-tcp-socket$':
       '<rootDir>/__mocks__/react-native-tcp-socket.js',

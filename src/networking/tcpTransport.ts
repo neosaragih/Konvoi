@@ -31,6 +31,7 @@ export class TcpHostConnection implements HostConnection {
     socket.on('data', this.handleData);
     socket.on('close', this.handleClose);
     socket.on('error', this.handleError);
+    socket.on('timeout', this.handleTimeout);
   }
 
   private applySocketOptions(): void {
@@ -108,6 +109,15 @@ export class TcpHostConnection implements HostConnection {
 
   private handleError = (error: Error): void => {
     this.lastError = error;
+    this.finish();
+  };
+
+  private handleTimeout = (): void => {
+    try {
+      this.socket.destroy();
+    } catch {
+      // Best effort
+    }
     this.finish();
   };
 
@@ -244,6 +254,8 @@ export class TcpClient implements ClientTransport {
   private closeHandler: (() => void) | null = null;
   private errorHandler: ((error: Error) => void) | null = null;
   private earlyChunks: Uint8Array[] = [];
+  private sendQueue: string[] = [];
+  private connected = false;
   private closed = false;
   private closeNotified = false;
 
@@ -251,23 +263,42 @@ export class TcpClient implements ClientTransport {
     private readonly socket: Socket,
     private readonly handlers: TcpClientHandlers = {},
   ) {
+    // If socket is already open (e.g. pre-connected or mock)
+    const socketState = socket as unknown as {
+      readyState?: string;
+      _pending?: boolean;
+    };
+    if (socketState.readyState === 'open' && socketState._pending === false) {
+      this.connected = true;
+    }
+
     try {
       socket.setNoDelay(true);
       socket.setKeepAlive(true);
     } catch {
       // Best effort; the app-level PING is the reliable keepalive.
     }
+    socket.on('connect', this.handleConnect);
     socket.on('data', this.handleData);
     socket.on('close', this.handleClose);
     socket.on('error', this.handleError);
+    socket.on('timeout', this.handleTimeout);
   }
 
   get isClosed(): boolean {
     return this.closed;
   }
 
+  get isConnected(): boolean {
+    return this.connected;
+  }
+
   send(line: string): void {
     if (this.closed) {
+      return;
+    }
+    if (!this.connected) {
+      this.sendQueue.push(line);
       return;
     }
     try {
@@ -310,6 +341,32 @@ export class TcpClient implements ClientTransport {
     this.errorHandler = handler;
   }
 
+  private handleConnect = (): void => {
+    if (this.closed) {
+      return;
+    }
+    this.connected = true;
+    this.handlers.onConnect?.();
+    this.flushQueue();
+  };
+
+  private flushQueue(): void {
+    if (this.closed || !this.connected) {
+      return;
+    }
+    while (this.sendQueue.length > 0) {
+      const line = this.sendQueue.shift();
+      if (line !== undefined) {
+        try {
+          this.socket.write(line);
+        } catch {
+          this.finish();
+          break;
+        }
+      }
+    }
+  }
+
   private handleData = (data: string | Uint8Array): void => {
     if (this.closed) {
       return;
@@ -332,11 +389,22 @@ export class TcpClient implements ClientTransport {
     this.finish();
   };
 
+  private handleTimeout = (): void => {
+    try {
+      this.socket.destroy();
+    } catch {
+      // Best effort
+    }
+    this.finish();
+  };
+
   private finish(): void {
     if (this.closed) {
       return;
     }
     this.closed = true;
+    this.connected = false;
+    this.sendQueue = [];
     this.earlyChunks = [];
     this.notifyClose();
   }
@@ -360,7 +428,9 @@ export function connectTcp(
       port: options.port,
       connectTimeout: options.connectTimeoutMs,
     },
-    () => handlers.onConnect?.(),
+    () => {
+      // Connect event is handled by socket.on('connect') inside TcpClient
+    },
   );
   return new TcpClient(socket, handlers);
 }

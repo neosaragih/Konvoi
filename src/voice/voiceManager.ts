@@ -299,6 +299,13 @@ export class VoiceManager {
       }
     };
 
+    pc.ontrack = event => {
+      const anyEvent = event as unknown as { track?: { enabled: boolean } };
+      if (anyEvent?.track) {
+        anyEvent.track.enabled = true;
+      }
+    };
+
     if (this.track && this.stream) {
       pc.addTrack(this.track, this.stream);
     }

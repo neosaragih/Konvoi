@@ -15,18 +15,50 @@ interface BadgeProps {
   style?: ViewStyle;
 }
 
-const toneStyles: Record<BadgeTone, { background: string; color: string }> = {
-  neutral: { background: colors.surfaceAlt, color: colors.muted },
-  success: { background: '#15392C', color: colors.success },
-  warning: { background: '#3A3017', color: colors.warning },
-  danger: { background: colors.dangerSurface, color: colors.danger },
-  primary: { background: '#3A2418', color: colors.primary },
+const toneStyles: Record<
+  BadgeTone,
+  { background: string; border: string; color: string }
+> = {
+  neutral: {
+    background: colors.surfaceAlt,
+    border: '#3F3F46',
+    color: colors.muted,
+  },
+  success: {
+    background: 'rgba(34, 197, 94, 0.12)',
+    border: 'rgba(34, 197, 94, 0.35)',
+    color: '#4ADE80',
+  },
+  warning: {
+    background: 'rgba(245, 158, 11, 0.12)',
+    border: 'rgba(245, 158, 11, 0.35)',
+    color: '#FBBF24',
+  },
+  danger: {
+    background: 'rgba(239, 68, 68, 0.12)',
+    border: 'rgba(239, 68, 68, 0.35)',
+    color: '#F87171',
+  },
+  primary: {
+    background: 'rgba(56, 189, 248, 0.12)',
+    border: 'rgba(56, 189, 248, 0.35)',
+    color: '#38BDF8',
+  },
 };
 
 export function Badge({ label, tone = 'neutral', style }: BadgeProps) {
   const palette = toneStyles[tone];
   return (
-    <View style={[styles.base, { backgroundColor: palette.background }, style]}>
+    <View
+      style={[
+        styles.base,
+        {
+          backgroundColor: palette.background,
+          borderColor: palette.border,
+        },
+        style,
+      ]}
+    >
       <Text style={[styles.label, { color: palette.color }]}>{label}</Text>
     </View>
   );
@@ -36,13 +68,13 @@ const styles = StyleSheet.create({
   base: {
     alignSelf: 'flex-start',
     borderRadius: radius.pill,
+    borderWidth: 1,
     paddingHorizontal: spacing.sm + 2,
-    paddingVertical: spacing.xs,
+    paddingVertical: spacing.xs - 1,
   },
   label: {
     fontSize: typography.tiny,
-    fontWeight: '800',
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
+    fontWeight: '600',
+    letterSpacing: -0.1,
   },
 });

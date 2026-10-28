@@ -22,6 +22,7 @@ export interface DiscoveredRoom {
   host: string;
   port: number;
   addresses: string[];
+  pin?: string;
 }
 
 export interface RoomDiscoveryHandlers {
@@ -43,10 +44,38 @@ function describeZeroconfError(error: ZeroconfError): string {
   return 'Pencarian mDNS gagal. Masukkan IP host dan port secara manual.';
 }
 
-function toDiscoveredRoom(service: Service): DiscoveredRoom | null {
-  const addresses =
-    service.ipv4.length > 0 ? service.ipv4 : service.addresses ?? [];
-  const host = addresses[0] ?? service.host;
+function isUsableHostAddress(address?: string): boolean {
+  if (!address) {
+    return false;
+  }
+  const clean = address.trim();
+  if (
+    clean === '127.0.0.1' ||
+    clean.startsWith('127.') ||
+    clean === '::1' ||
+    clean.toLowerCase().startsWith('fe80:')
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function toDiscoveredRoom(service: Service): DiscoveredRoom | null {
+  const ipv4List = Array.isArray(service.ipv4) ? service.ipv4 : [];
+  const addressesList = Array.isArray(service.addresses) ? service.addresses : [];
+  const allAddresses = ipv4List.length > 0 ? ipv4List : addressesList;
+
+  // Filter out loopback and link-local addresses
+  const usableIpv4 = ipv4List.filter(isUsableHostAddress);
+  const usableAll = addressesList.filter(isUsableHostAddress);
+  const hostCandidates = usableIpv4.length > 0 ? usableIpv4 : usableAll;
+
+  const host =
+    hostCandidates[0] ??
+    (isUsableHostAddress(service.host) ? service.host : null) ??
+    allAddresses[0] ??
+    service.host;
+
   if (!host || !Number.isInteger(service.port) || service.port <= 0) {
     return null;
   }
@@ -70,7 +99,8 @@ function toDiscoveredRoom(service: Service): DiscoveredRoom | null {
     protocolVersion,
     host,
     port: service.port,
-    addresses,
+    addresses: allAddresses,
+    ...(typeof txt.pin === 'string' && txt.pin.length > 0 ? { pin: txt.pin } : {}),
   };
 }
 
@@ -182,6 +212,7 @@ export interface RoomAdvertisement {
   roomId: string;
   roomName: string;
   port: number;
+  pin?: string;
 }
 
 export interface RoomAdvertiserHandlers {
@@ -210,6 +241,7 @@ export class RoomAdvertiser {
           room: advertisement.roomId,
           name: advertisement.roomName,
           proto: PROTOCOL_VERSION,
+          ...(advertisement.pin ? { pin: advertisement.pin } : {}),
         },
       });
       if (this.stopped) {

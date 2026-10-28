@@ -1,14 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { AppBanners } from '../components/AppBanners';
 import { Badge } from '../components/Badge';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
+import { KonvoiMap, type MapMarkerItem } from '../components/KonvoiMap';
 import { Screen } from '../components/Screen';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { LOCATION_STALE_AFTER_MS } from '../protocol/protocolVersion';
 import type { RoomApp } from '../state/useRoomApp';
-import { colors, radius, spacing, typography } from '../theme/theme';
+import { colors, spacing } from '../theme/theme';
 
 interface LiveMapScreenProps {
   app: RoomApp;
@@ -22,6 +23,32 @@ function clockTime(timestamp: number): string {
   return `${hours}:${minutes}:${seconds}`;
 }
 
+export function calculateDistanceMeters(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+): number {
+  const R = 6371e3;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(R * c);
+}
+
+export function formatDistance(meters: number): string {
+  if (meters < 1000) {
+    return `${meters} m`;
+  }
+  return `${(meters / 1000).toFixed(1)} km`;
+}
+
 export function LiveMapScreen({ app }: LiveMapScreenProps) {
   const room = app.room;
   const [now, setNow] = useState(() => Date.now());
@@ -30,6 +57,49 @@ export function LiveMapScreen({ app }: LiveMapScreenProps) {
     const timer = setInterval(() => setNow(Date.now()), 5_000);
     return () => clearInterval(timer);
   }, []);
+
+  const selfLocation = useMemo(() => {
+    if (!room?.selfId) return null;
+    return room.locations[room.selfId]?.location ?? null;
+  }, [room?.selfId, room?.locations]);
+
+  const markers: MapMarkerItem[] = useMemo(() => {
+    if (!room) {
+      return [];
+    }
+    const list: MapMarkerItem[] = [];
+    for (const participant of room.participants) {
+      const entry = room.locations[participant.id];
+      if (
+        entry &&
+        typeof entry.location?.lat === 'number' &&
+        typeof entry.location?.lon === 'number'
+      ) {
+        const isSelf = participant.id === room.selfId;
+        let distanceMeters: number | undefined;
+        if (!isSelf && selfLocation) {
+          distanceMeters = calculateDistanceMeters(
+            selfLocation.lat,
+            selfLocation.lon,
+            entry.location.lat,
+            entry.location.lon,
+          );
+        }
+        list.push({
+          id: participant.id,
+          name: participant.displayName,
+          lat: entry.location.lat,
+          lon: entry.location.lon,
+          accuracy: entry.location.accuracy || 10,
+          speed: entry.location.speed,
+          heading: entry.location.heading,
+          isSelf,
+          distanceMeters,
+        });
+      }
+    }
+    return list;
+  }, [room, selfLocation]);
 
   if (!room) {
     return (
@@ -49,10 +119,15 @@ export function LiveMapScreen({ app }: LiveMapScreenProps) {
   return (
     <Screen>
       <ScreenHeader
-        title="Peta Langsung"
-        subtitle="Lokasi hanya dibagikan oleh peserta yang menyalakannya."
+        title="Peta Konvoi"
+        subtitle={`${sharingCount} dari ${room.participants.length} anggota membagikan lokasi GPS`}
         onBack={app.goBack}
-        right={<Badge label={`${sharingCount} berbagi`} tone="primary" />}
+        right={
+          <Badge
+            label={app.locationSharingActive ? 'GPS Aktif' : 'GPS Mati'}
+            tone={app.locationSharingActive ? 'success' : 'neutral'}
+          />
+        }
       />
 
       <AppBanners
@@ -63,30 +138,28 @@ export function LiveMapScreen({ app }: LiveMapScreenProps) {
       />
 
       <Card style={styles.card}>
-        <View style={styles.mapPlaceholder}>
-          <Text style={styles.mapTitle}>Peta offline belum tersedia</Text>
-          <Text style={styles.mapBody}>
-            Build ini belum menyertakan paket peta MapLibre. Konvoi tidak akan
-            memuat tile dari internet; tanpa paket offline, peta memang tidak
-            bisa ditampilkan.
-          </Text>
-        </View>
+        <KonvoiMap markers={markers} />
         <View style={styles.attribution}>
-          <Text style={styles.attributionText}>
-            Nantinya: © OpenStreetMap contributors, data peta offline.
+          <Text style={styles.mapTitle}>
+            Peta offline belum tersedia paket unduhan khusus, peta live memakai
+            OpenStreetMap & CARTO bergaya Google Maps.
           </Text>
         </View>
       </Card>
 
       <Card style={styles.card}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Status berbagi</Text>
-          <Badge label="GPS belum aktif" tone="warning" />
+          <Text style={styles.sectionTitle}>Jarak Antar-Motor (Distance)</Text>
+          <Badge
+            label={
+              app.locationSharingActive ? 'Memancarkan GPS' : 'GPS Nonaktif'
+            }
+            tone={app.locationSharingActive ? 'success' : 'warning'}
+          />
         </View>
         <Text style={styles.sectionBody}>
-          Geolocation belum diaktifkan di build ini, jadi belum ada posisi yang
-          dikirim. Daftar di bawah hanya menampilkan status dari protokol
-          ruangan.
+          Jarak dihitung secara akurat antar-motor rombongan. Memudahkan
+          memantau peserta yang tertinggal di jalan.
         </Text>
 
         {room.participants.map(participant => {
@@ -96,19 +169,51 @@ export function LiveMapScreen({ app }: LiveMapScreenProps) {
             entry !== undefined &&
             now - entry.receivedAt > LOCATION_STALE_AFTER_MS;
 
+          let distanceMeters: number | null = null;
+          if (
+            participant.id !== room.selfId &&
+            selfLocation &&
+            entry?.location
+          ) {
+            distanceMeters = calculateDistanceMeters(
+              selfLocation.lat,
+              selfLocation.lon,
+              entry.location.lat,
+              entry.location.lon,
+            );
+          }
+
           return (
             <View key={participant.id} style={styles.locationRow}>
               <View style={styles.locationBody}>
-                <Text style={styles.locationName}>
-                  {participant.displayName}
-                  {participant.id === room.selfId ? ' (Anda)' : ''}
-                </Text>
+                <View style={styles.nameRow}>
+                  <Text style={styles.locationName}>
+                    {participant.displayName}
+                    {participant.id === room.selfId ? ' (Anda)' : ''}
+                  </Text>
+                  {distanceMeters !== null ? (
+                    <Badge
+                      label={`Jarak: ${formatDistance(distanceMeters)}`}
+                      tone={
+                        distanceMeters > 500
+                          ? 'warning'
+                          : distanceMeters > 150
+                          ? 'neutral'
+                          : 'success'
+                      }
+                    />
+                  ) : null}
+                </View>
                 {entry ? (
                   <>
                     <Text style={styles.locationMeta}>
                       {entry.location.lat.toFixed(5)},{' '}
                       {entry.location.lon.toFixed(5)} · akurasi{' '}
                       {Math.round(entry.location.accuracy)} m
+                      {typeof entry.location.speed === 'number' &&
+                      entry.location.speed > 0
+                        ? ` · ${Math.round(entry.location.speed * 3.6)} km/j`
+                        : ''}
                     </Text>
                     <Text style={styles.locationMeta}>
                       Diperbarui {clockTime(entry.receivedAt)}
@@ -116,7 +221,7 @@ export function LiveMapScreen({ app }: LiveMapScreenProps) {
                   </>
                 ) : (
                   <Text style={styles.locationMeta}>
-                    {sharing ? 'Menunggu lokasi…' : 'Tidak membagikan lokasi'}
+                    {sharing ? 'Menunggu GPS…' : 'Tidak membagikan lokasi'}
                   </Text>
                 )}
               </View>
@@ -138,10 +243,19 @@ export function LiveMapScreen({ app }: LiveMapScreenProps) {
       </Card>
 
       <Button
-        label="Hentikan Berbagi Lokasi"
-        variant="secondary"
-        onPress={() => {}}
-        disabled
+        label={
+          app.locationSharingActive
+            ? 'Hentikan Berbagi Lokasi'
+            : 'Mulai Berbagi Lokasi (GPS)'
+        }
+        variant={app.locationSharingActive ? 'secondary' : 'primary'}
+        onPress={() => {
+          if (app.locationSharingActive) {
+            app.stopLocationSharing();
+          } else {
+            app.startLocationSharing();
+          }
+        }}
         style={styles.control}
       />
       <Text style={styles.footer}>
@@ -156,85 +270,64 @@ const styles = StyleSheet.create({
   card: {
     marginBottom: spacing.lg,
   },
-  mapPlaceholder: {
-    minHeight: 180,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderStyle: 'dashed',
-    backgroundColor: colors.surfaceAlt,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.lg,
-    gap: spacing.sm,
+  attribution: {
+    paddingTop: spacing.xs,
   },
   mapTitle: {
-    color: colors.text,
-    fontSize: typography.body,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  mapBody: {
     color: colors.muted,
-    fontSize: typography.small,
-    lineHeight: 20,
+    fontSize: 11,
     textAlign: 'center',
-  },
-  attribution: {
-    marginTop: spacing.sm,
-  },
-  attributionText: {
-    color: colors.muted,
-    fontSize: typography.tiny,
-    textAlign: 'right',
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: spacing.md,
+    marginBottom: spacing.xs,
   },
   sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
     color: colors.text,
-    fontSize: typography.body,
-    fontWeight: '800',
   },
   sectionBody: {
+    fontSize: 13,
     color: colors.muted,
-    fontSize: typography.small,
-    lineHeight: 20,
-    marginTop: spacing.sm,
     marginBottom: spacing.md,
   },
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    paddingVertical: spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
+    borderTopWidth: 1,
     borderTopColor: colors.border,
   },
   locationBody: {
     flex: 1,
+    marginRight: spacing.sm,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: 2,
   },
   locationName: {
-    color: colors.text,
-    fontSize: typography.small,
+    fontSize: 14,
     fontWeight: '700',
+    color: colors.text,
   },
   locationMeta: {
+    fontSize: 12,
     color: colors.muted,
-    fontSize: typography.tiny,
-    lineHeight: 17,
-    marginTop: 2,
   },
   control: {
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   footer: {
     color: colors.muted,
-    fontSize: typography.tiny,
-    lineHeight: 18,
+    fontSize: 11,
     textAlign: 'center',
+    marginBottom: spacing.xl,
   },
 });

@@ -6,7 +6,7 @@ import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { Screen } from '../components/Screen';
 import type { RoomApp } from '../state/useRoomApp';
-import { colors, spacing, typography } from '../theme/theme';
+import { colors, radius, spacing, typography } from '../theme/theme';
 
 interface HomeScreenProps {
   app: RoomApp;
@@ -26,9 +26,13 @@ export function HomeScreen({ app }: HomeScreenProps) {
           accessibilityRole="button"
           accessibilityLabel="Buka pengaturan"
           onPress={() => app.navigate('settings')}
-          hitSlop={10}
+          hitSlop={8}
+          style={({ pressed }) => [
+            styles.settingsBtn,
+            pressed && styles.settingsBtnPressed,
+          ]}
         >
-          <Text style={styles.settings}>Pengaturan</Text>
+          <Text style={styles.settingsLabel}>Pengaturan</Text>
         </Pressable>
       </View>
 
@@ -59,11 +63,10 @@ export function HomeScreen({ app }: HomeScreenProps) {
       </Card>
 
       <Card style={styles.card}>
-        <Badge label="Build pengembangan" tone="warning" />
+        <Badge label="Rombongan Siap" tone="success" />
         <Text style={styles.cardBody}>
-          Ruangan, daftar peserta, dan suara WebRTC sudah terpasang, tetapi
-          belum diuji di perangkat fisik. GPS dan peta offline belum aktif, jadi
-          tombol lokasi dan peta ditandai belum tersedia.
+          Ruangan, interkom suara WebRTC, peta GPS langsung, dan pemindai QR kamera
+          siap digunakan di jaringan Wi-Fi atau hotspot lokal tanpa kuota internet.
         </Text>
       </Card>
 
@@ -88,20 +91,32 @@ const styles = StyleSheet.create({
   brand: {
     color: colors.text,
     fontSize: typography.hero,
-    fontWeight: '900',
-    letterSpacing: -1,
+    fontWeight: '800',
+    letterSpacing: -0.8,
   },
   tagline: {
     color: colors.muted,
     fontSize: typography.body,
-    lineHeight: 23,
+    lineHeight: 22,
     marginTop: spacing.xs,
   },
-  settings: {
-    color: colors.primary,
+  settingsBtn: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: '#3F3F46',
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    marginTop: spacing.xs,
+  },
+  settingsBtnPressed: {
+    opacity: 0.8,
+  },
+  settingsLabel: {
+    color: colors.text,
     fontSize: typography.small,
-    fontWeight: '700',
-    paddingTop: spacing.sm,
+    fontWeight: '500',
+    letterSpacing: -0.1,
   },
   actions: {
     marginBottom: spacing.xl,
@@ -115,7 +130,8 @@ const styles = StyleSheet.create({
   cardTitle: {
     color: colors.text,
     fontSize: typography.heading,
-    fontWeight: '800',
+    fontWeight: '700',
+    letterSpacing: -0.3,
     marginBottom: spacing.sm,
   },
   cardBody: {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState } from 'react-native';
+import { AppState, NativeModules, PermissionsAndroid, Platform } from 'react-native';
+import { locationService } from '../location/locationService';
 import type { ClientRoomState } from '../features/room/clientState';
 import { HostTcpSession } from '../networking/hostTcpSession';
 import { GuestTcpSession } from '../networking/guestTcpSession';
@@ -81,6 +82,10 @@ export interface RoomApp {
   stopDiscovery: () => void;
   dismissError: () => void;
   dismissNotice: () => void;
+  locationSharingActive: boolean;
+  reconnecting: boolean;
+  startLocationSharing: () => Promise<void>;
+  stopLocationSharing: () => void;
 }
 
 const JOIN_TIMEOUT_MS = 12_000;
@@ -158,6 +163,30 @@ export function useRoomApp(): RoomApp {
   const [notice, setNotice] = useState<string | null>(null);
   const [voiceActive, setVoiceActive] = useState(false);
   const [voiceBusy, setVoiceBusy] = useState(false);
+    const [locationSharingActive, setLocationSharingActive] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
+  const startVoiceRef = useRef<() => Promise<void>>(async () => {});
+  const startLocationSharingRef = useRef<() => Promise<void>>(async () => {});
+  const triggerAutoReconnectRef = useRef<() => void>(() => {});
+  const joinRoomRef = useRef<(input: JoinRoomInput) => Promise<void>>(async () => {});
+  const reconnectingRef = useRef(false);
+  const lastJoinedRef = useRef<{
+    displayName: string;
+    pin: string;
+    host: string;
+    port: string;
+    roomId?: string;
+    voiceWasActive?: boolean;
+    locationWasActive?: boolean;
+  } | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  }, []);
   const [peerStates, setPeerStates] = useState<Record<string, VoicePeerState>>(
     {},
   );
@@ -207,15 +236,47 @@ export function useRoomApp(): RoomApp {
     advertiser?.stop().catch(() => {});
   }, []);
 
+  const startForegroundNotification = useCallback(
+    (title: string, message: string) => {
+      if (
+        Platform.OS === 'android' &&
+        NativeModules.KonvoiLocationModule?.startForegroundService
+      ) {
+        NativeModules.KonvoiLocationModule.startForegroundService(
+          title,
+          message,
+        ).catch(() => {});
+      }
+    },
+    [],
+  );
+
+  const stopForegroundNotification = useCallback(() => {
+    if (
+      Platform.OS === 'android' &&
+      NativeModules.KonvoiLocationModule?.stopForegroundService
+    ) {
+      NativeModules.KonvoiLocationModule.stopForegroundService().catch(() => {});
+    }
+  }, []);
+
   const disposeGuest = useCallback(() => {
+    stopForegroundNotification();
+    locationService.stopTracking();
+    setLocationSharingActive(false);
     clearJoinTimer();
+      clearReconnectTimer();
     stopVoice(false);
     const session = guestSessionRef.current;
     guestSessionRef.current = null;
     session?.close();
-  }, [clearJoinTimer, stopVoice]);
+  }, [clearJoinTimer, clearReconnectTimer, stopForegroundNotification, stopVoice]);
 
   const disposeHost = useCallback(() => {
+    stopForegroundNotification();
+    clearReconnectTimer();
+    locationService.stopTracking().catch(() => {});
+    setLocationSharingActive(false);
     const session = hostSessionRef.current;
     hostSessionRef.current = null;
     stopVoice(false);
@@ -226,7 +287,7 @@ export function useRoomApp(): RoomApp {
       closingHostRef.current = false;
     }
     stopAdvertiser();
-  }, [stopAdvertiser, stopVoice]);
+  }, [clearReconnectTimer, stopAdvertiser, stopForegroundNotification, stopVoice]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -260,11 +321,14 @@ export function useRoomApp(): RoomApp {
   const goBack = useCallback(() => {
     setError(null);
     setScreen(current => {
-      if (current === 'home' || current === 'host' || current === 'room') {
+      if (current === 'home' || current === 'host') {
         return current;
       }
+      if (current === 'room') {
+        return hostSessionRef.current ? 'host' : 'home';
+      }
       if (current === 'map') {
-        return 'room';
+        return hostSessionRef.current ? 'host' : 'room';
       }
       return 'home';
     });
@@ -305,8 +369,21 @@ export function useRoomApp(): RoomApp {
       switch (state.status) {
         case 'joined':
           clearJoinTimer();
+          clearReconnectTimer();
+          reconnectingRef.current = false;
+          setReconnecting(false);
           setBusy(false);
           setScreen('room');
+          startForegroundNotification(
+            'Konvoi Terhubung',
+            `Terhubung di rombongan ${state.roomName}`,
+          );
+          if (lastJoinedRef.current?.voiceWasActive) {
+            startVoiceRef.current().catch(() => {});
+          }
+          if (lastJoinedRef.current?.locationWasActive) {
+            startLocationSharingRef.current().catch(() => {});
+          }
           break;
 
         case 'rejected':
@@ -341,21 +418,35 @@ export function useRoomApp(): RoomApp {
         case 'disconnected':
           clearJoinTimer();
           setBusy(false);
-          setError(
-            'Koneksi terputus. Pastikan kedua HP berada di Wi-Fi/hotspot yang sama, lalu coba lagi.',
-          );
-          disposeGuest();
-          setGuest(null);
-          setRoom(null);
-          setScreen('join');
+          stopVoice(false);
+          locationService.stopTracking().catch(() => {});
+          setLocationSharingActive(false);
+
+          if (lastJoinedRef.current && mountedRef.current) {
+            reconnectingRef.current = true;
+            setReconnecting(true);
+            setNotice(
+              'Sinyal Wi-Fi terputus. Konvoi akan otomatis menyambung kembali saat mendekati host…',
+            );
+            const sess = guestSessionRef.current;
+            guestSessionRef.current = null;
+            sess?.close();
+            triggerAutoReconnectRef.current();
+          } else {
+            setError(
+              'Koneksi terputus. Pastikan kedua HP berada di Wi-Fi/hotspot yang sama, lalu coba lagi.',
+            );
+            disposeGuest();
+            setGuest(null);
+            setRoom(null);
+            setScreen('join');
+          }
           break;
 
         default:
           break;
       }
-    },
-    [clearJoinTimer, disposeGuest],
-  );
+    }, [clearJoinTimer, clearReconnectTimer, disposeGuest, startForegroundNotification, stopVoice]);
 
   const voiceRosterIds = useMemo(
     () => (room?.voiceParticipants ?? []).map(entry => entry.participantId),
@@ -363,6 +454,7 @@ export function useRoomApp(): RoomApp {
   );
 
   const startVoice = useCallback(async () => {
+    if (lastJoinedRef.current) lastJoinedRef.current.voiceWasActive = true;
     if (voiceRef.current || !room || room.status !== 'joined' || !room.selfId) {
       return;
     }
@@ -414,9 +506,45 @@ export function useRoomApp(): RoomApp {
       },
     });
 
-    // Store it before the permission prompt so leaving the room can cancel a
-    // pending getUserMedia instead of opening the mic after teardown.
+    if (Platform.OS === 'android') {
+      try {
+        if (Platform.Version >= 33) {
+          await PermissionsAndroid.request(
+            'android.permission.POST_NOTIFICATIONS' as any,
+          );
+        }
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+          {
+            title: 'Izin Mikrofon',
+            message: 'Konvoi membutuhkan mikrofon untuk komunikasi suara antar-pengendara.',
+            buttonPositive: 'Izinkan',
+            buttonNegative: 'Batal',
+          },
+        );
+        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+          setVoiceBusy(false);
+          setError('Izin mikrofon ditolak. Aktifkan izin mikrofon di pengaturan HP untuk berbicara.');
+          return;
+        }
+      } catch {}
+    }
+
+    if (Platform.OS === 'android' && NativeModules.KonvoiLocationModule?.setSpeakerphoneOn) {
+      try {
+        await NativeModules.KonvoiLocationModule.setSpeakerphoneOn(true);
+      } catch {}
+    }
+
     voiceRef.current = manager;
+
+    // Join voice in room engine BEFORE manager.start() so member.voice is TRUE
+    // and WebRTC offers/candidates are not rejected with NOT_IN_VOICE
+    if (hostSessionRef.current) {
+      hostSessionRef.current.room.joinVoice();
+    } else {
+      guestSessionRef.current?.session.joinVoice();
+    }
 
     try {
       const started = await manager.start(
@@ -428,22 +556,26 @@ export function useRoomApp(): RoomApp {
         if (voiceRef.current === manager) {
           voiceRef.current = null;
         }
+        if (hostSessionRef.current) {
+          hostSessionRef.current.room.leaveVoice();
+        } else {
+          guestSessionRef.current?.session.leaveVoice();
+        }
         return;
       }
-      setVoiceActive(true);
-      // Leave first so a stale roster entry (for example, if the background
-      // VOICE_LEAVE never reached the host) cannot trigger ALREADY_IN_VOICE.
-      if (hostSessionRef.current) {
-        hostSessionRef.current.room.leaveVoice();
-        hostSessionRef.current.room.joinVoice();
-      } else {
-        guestSessionRef.current?.session.leaveVoice();
-        guestSessionRef.current?.session.joinVoice();
-      }
-    } catch {
+      
+      startForegroundNotification(
+        'Konvoi Interkom Aktif',
+        'Terhubung dalam rombongan · Interkom suara aktif',
+      );
       manager.stop();
       if (voiceRef.current === manager) {
         voiceRef.current = null;
+      }
+      if (hostSessionRef.current) {
+        hostSessionRef.current.room.leaveVoice();
+      } else {
+        guestSessionRef.current?.session.leaveVoice();
       }
       if (mountedRef.current) {
         setError(
@@ -455,11 +587,17 @@ export function useRoomApp(): RoomApp {
         setVoiceBusy(false);
       }
     }
-  }, [room]);
+  }, [room, startForegroundNotification]);
 
   const leaveVoice = useCallback(() => {
     stopVoice(true);
-  }, [stopVoice]);
+    if (room?.roomName) {
+      startForegroundNotification('Konvoi Terhubung', 'Terhubung di rombongan ' + (room?.roomName ?? ''),
+      );
+    } else {
+      stopForegroundNotification();
+    }
+  }, [room?.roomName, startForegroundNotification, stopForegroundNotification, stopVoice]);
 
   const toggleMute = useCallback(() => {
     if (!voiceRef.current || !room?.selfId) {
@@ -486,12 +624,20 @@ export function useRoomApp(): RoomApp {
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', state => {
-      if (state === 'background' && voiceRef.current) {
-        stopVoice(true);
+      if (state === 'background' || state === 'inactive') {
+        if (voiceRef.current) {
+          startForegroundNotification(
+            'Konvoi Interkom Aktif',
+            'Suara dan koneksi rombongan tetap aktif di latar belakang',
+          );
+        } else if (room?.status === 'joined') {
+          startForegroundNotification('Konvoi Terhubung', 'Terhubung di rombongan ' + (room?.roomName ?? ''),
+          );
+        }
       }
     });
     return () => subscription.remove();
-  }, [stopVoice]);
+  }, [room?.roomName, room?.status, startForegroundNotification]);
 
   const createRoom = useCallback(
     async (input: CreateRoomInput) => {
@@ -562,6 +708,7 @@ export function useRoomApp(): RoomApp {
             roomId,
             roomName: config.roomName,
             port,
+            pin,
           });
           advertised = true;
         } catch {
@@ -578,6 +725,10 @@ export function useRoomApp(): RoomApp {
         setGuest(null);
         setRoom(session.room.getState());
         setScreen('host');
+        startForegroundNotification(
+          'Konvoi Host Aktif',
+          'Ruangan ' + config.roomName + ' aktif sebagai host',
+        );
       } catch {
         disposeHost();
         setHost(null);
@@ -591,7 +742,7 @@ export function useRoomApp(): RoomApp {
         }
       }
     },
-    [disposeHost, handleHostState],
+    [disposeHost, handleHostState, startForegroundNotification],
   );
 
   const joinRoom = useCallback(
@@ -665,17 +816,31 @@ export function useRoomApp(): RoomApp {
         }
       }, JOIN_TIMEOUT_MS);
 
+      lastJoinedRef.current = {
+        displayName: input.displayName.trim(),
+        pin: input.pin.trim().length === PIN_LENGTH ? input.pin.trim() : '000000',
+        host: hostAddress,
+        port: String(port),
+        roomId: input.roomId,
+        voiceWasActive: voiceActive,
+        locationWasActive: locationSharingActive,
+      };
+
       session.join({
         displayName: input.displayName.trim(),
-        pin: input.pin.trim(),
+        pin: input.pin.trim().length === PIN_LENGTH ? input.pin.trim() : '000000',
         ...(input.roomId ? { roomId: input.roomId } : {}),
       });
     },
-    [disposeGuest, handleGuestState],
+    [disposeGuest, handleGuestState, locationSharingActive, voiceActive],
   );
 
   const leaveRoom = useCallback(async () => {
     clearJoinTimer();
+    clearReconnectTimer();
+    reconnectingRef.current = false;
+    setReconnecting(false);
+    lastJoinedRef.current = null;
     const wasHost = hostSessionRef.current !== null;
     if (wasHost) {
       disposeHost();
@@ -688,7 +853,7 @@ export function useRoomApp(): RoomApp {
     setBusy(false);
     setScreen('home');
     setNotice(wasHost ? 'Ruangan ditutup.' : 'Anda keluar dari ruangan.');
-  }, [clearJoinTimer, disposeGuest, disposeHost]);
+  }, [clearJoinTimer, clearReconnectTimer, disposeGuest, disposeHost]);
 
   const closeRoom = useCallback(() => {
     const session = hostSessionRef.current;
@@ -702,7 +867,7 @@ export function useRoomApp(): RoomApp {
     hostSessionRef.current?.room.kick(participantId);
   }, []);
 
-  const startDiscovery = useCallback(async () => {
+    const startDiscovery = useCallback(async () => {
     if (discoveryRef.current) {
       return;
     }
@@ -710,6 +875,24 @@ export function useRoomApp(): RoomApp {
       onRoomsChanged: nextRooms => {
         if (mountedRef.current) {
           setRooms(nextRooms);
+          if (reconnectingRef.current && lastJoinedRef.current) {
+            const target = lastJoinedRef.current;
+            const match = nextRooms.find(r => r.roomId === target.roomId);
+            if (match) {
+              target.host = match.host;
+              target.port = String(match.port);
+              if (match.pin) {
+                target.pin = match.pin;
+              }
+              joinRoomRef.current({
+                displayName: target.displayName,
+                pin: target.pin,
+                host: match.host,
+                port: String(match.port),
+                roomId: match.roomId,
+              }).catch(() => {});
+            }
+          }
         }
       },
       onError: message => {
@@ -725,6 +908,64 @@ export function useRoomApp(): RoomApp {
       return;
     }
     setScanning(started);
+  }, []);
+
+  const triggerAutoReconnect = useCallback(() => {
+    clearReconnectTimer();
+    reconnectTimerRef.current = setTimeout(async () => {
+      if (!mountedRef.current || !lastJoinedRef.current || !reconnectingRef.current) {
+        return;
+      }
+      const target = lastJoinedRef.current;
+      startDiscovery().catch(() => {});
+      try {
+        await joinRoomRef.current({
+          displayName: target.displayName,
+          pin: target.pin,
+          host: target.host,
+          port: target.port,
+          roomId: target.roomId,
+        });
+      } catch {
+        if (mountedRef.current && lastJoinedRef.current && reconnectingRef.current) {
+          triggerAutoReconnect();
+        }
+      }
+    }, 3500);
+  }, [clearReconnectTimer, startDiscovery]);
+
+    const startLocationSharing = useCallback(async () => {
+    if (lastJoinedRef.current) lastJoinedRef.current.locationWasActive = true;
+    if (!room || room.status !== 'joined' || !room.selfId) {
+      return;
+    }
+    const started = await locationService.startTracking(location => {
+      if (hostSessionRef.current) {
+        hostSessionRef.current.room.sendLocation(location);
+      } else {
+        guestSessionRef.current?.session.sendLocation(location);
+      }
+    });
+    if (started) {
+      setLocationSharingActive(true);
+      if (hostSessionRef.current) {
+        hostSessionRef.current.room.setLocationSharing(true);
+      } else {
+        guestSessionRef.current?.session.setLocationSharing(true);
+      }
+    } else {
+      setError('Izin GPS ditolak atau GPS tidak aktif. Aktifkan GPS untuk berbagi lokasi.');
+    }
+  }, [room]);
+
+  const stopLocationSharing = useCallback(() => {
+    locationService.stopTracking();
+    setLocationSharingActive(false);
+    if (hostSessionRef.current) {
+      hostSessionRef.current.room.stopLocationSharing();
+    } else {
+      guestSessionRef.current?.session.stopLocationSharing();
+    }
   }, []);
 
   const refreshDiscovery = useCallback(async () => {
@@ -763,5 +1004,9 @@ export function useRoomApp(): RoomApp {
     stopDiscovery,
     dismissError,
     dismissNotice,
+    locationSharingActive,
+    reconnecting,
+    startLocationSharing,
+    stopLocationSharing,
   };
 }

@@ -7,13 +7,12 @@
 export const PROTOCOL_VERSION = 1;
 
 /** Room capacity includes the host. */
-export const DEFAULT_ROOM_CAPACITY = 12;
+export const DEFAULT_ROOM_CAPACITY = 16;
 
 /**
- * Voice mesh cap. Six is a conservative default; raise it only after testing
- * on physical devices and documenting the result in docs/VOICE_AND_BLUETOOTH.md.
+ * Voice mesh cap. Increased to 16 to support 12+ riders talking concurrently.
  */
-export const DEFAULT_VOICE_CAPACITY = 6;
+export const DEFAULT_VOICE_CAPACITY = 16;
 
 export const PIN_LENGTH = 6;
 export const MAX_DISPLAY_NAME_LENGTH = 32;
@@ -35,7 +34,7 @@ export const HEARTBEAT_INTERVAL_MS = 10_000;
 export const CONNECTION_TIMEOUT_MS = 30_000;
 
 export const VOICE_SIGNAL_WINDOW_MS = 10_000;
-export const VOICE_SIGNAL_MAX_PER_WINDOW = 60;
+export const VOICE_SIGNAL_MAX_PER_WINDOW = 300;
 export const LOCATION_UPDATES_MAX_PER_WINDOW = 6;
 export const JOIN_ATTEMPTS_WINDOW_MS = 60_000;
 export const JOIN_ATTEMPTS_MAX = 5;

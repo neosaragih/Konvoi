@@ -1,17 +1,17 @@
 export const colors = {
-  background: '#0B0F14',
-  surface: '#141C24',
-  surfaceAlt: '#1B2631',
-  border: '#2B3946',
-  text: '#F3F7FA',
-  muted: '#9CAAB7',
-  primary: '#FF6B35',
-  primaryPressed: '#E85A27',
-  onPrimary: '#101418',
-  success: '#3DDC97',
-  warning: '#FFC857',
-  danger: '#FF5A5F',
-  dangerSurface: '#3A1D22',
+  background: '#09090B', // shadcn zinc-950
+  surface: '#18181B', // shadcn zinc-900 (card)
+  surfaceAlt: '#27272A', // shadcn zinc-800
+  border: '#27272A', // shadcn zinc-800 border
+  text: '#F4F4F5', // shadcn zinc-100
+  muted: '#A1A1AA', // shadcn zinc-400
+  primary: '#38BDF8', // sky-400 (convoy primary)
+  primaryPressed: '#0284C7', // sky-600
+  onPrimary: '#09090B', // zinc-950
+  success: '#22C55E', // emerald-500
+  warning: '#F59E0B', // amber-500
+  danger: '#EF4444', // red-500
+  dangerSurface: '#450A0A', // red-950
 } as const;
 
 export const spacing = {
@@ -24,17 +24,18 @@ export const spacing = {
 } as const;
 
 export const radius = {
-  sm: 8,
-  md: 12,
-  lg: 20,
-  pill: 999,
+  sm: 6,
+  md: 8,
+  lg: 12,
+  xl: 16,
+  pill: 9999,
 } as const;
 
 export const typography = {
-  hero: 40,
-  title: 28,
-  heading: 20,
-  body: 16,
+  hero: 34,
+  title: 24,
+  heading: 18,
+  body: 15,
   small: 13,
   tiny: 11,
 } as const;

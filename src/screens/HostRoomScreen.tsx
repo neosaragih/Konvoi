@@ -1,14 +1,16 @@
-import React from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppBanners } from '../components/AppBanners';
 import { Badge } from '../components/Badge';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { ParticipantTile } from '../components/ParticipantTile';
+import { QrCodeView } from '../components/QrCodeView';
 import { Screen } from '../components/Screen';
 import { ScreenHeader } from '../components/ScreenHeader';
+import { buildJoinQr } from '../scanner/qrScanner';
 import type { RoomApp } from '../state/useRoomApp';
-import { colors, spacing, typography } from '../theme/theme';
+import { colors, spacing } from '../theme/theme';
 
 interface HostRoomScreenProps {
   app: RoomApp;
@@ -17,6 +19,19 @@ interface HostRoomScreenProps {
 export function HostRoomScreen({ app }: HostRoomScreenProps) {
   const host = app.host;
   const room = app.room;
+  const [showDetails, setShowDetails] = useState(false);
+  const [showQr, setShowQr] = useState(false);
+
+  const qrData = useMemo(() => {
+    if (!host) return '';
+    return buildJoinQr({
+      host: '192.168.43.1', // Standard default host IP for hotspot
+      port: host.port,
+      pin: host.pin,
+      roomId: host.roomId,
+      roomName: host.roomName,
+    });
+  }, [host]);
 
   if (!host) {
     return (
@@ -36,6 +51,10 @@ export function HostRoomScreen({ app }: HostRoomScreenProps) {
 
   const participants = room?.participants ?? [];
   const voiceParticipants = room?.voiceParticipants ?? [];
+  const selfVoice = voiceParticipants.find(
+    entry => entry.participantId === room?.selfId,
+  );
+  const selfMuted = selfVoice?.muted ?? false;
 
   function confirmClose() {
     Alert.alert(
@@ -71,11 +90,11 @@ export function HostRoomScreen({ app }: HostRoomScreenProps) {
     <Screen>
       <ScreenHeader
         title={host.roomName}
-        subtitle="Bagikan PIN, IP, dan port di bawah ini ke peserta."
+        subtitle="Ruangan siap. Tamu dapat scan QR kamera atau scan Wi-Fi langsung."
         onBack={app.goBack}
         right={
           <Badge
-            label={host.advertised ? 'mDNS aktif' : 'Mode manual'}
+            label={host.advertised ? 'Siap Scan (mDNS)' : 'Mode manual'}
             tone={host.advertised ? 'success' : 'warning'}
           />
         }
@@ -88,60 +107,82 @@ export function HostRoomScreen({ app }: HostRoomScreenProps) {
         onDismissNotice={app.dismissNotice}
       />
 
-      <Card style={styles.pinCard}>
-        <Text style={styles.label}>PIN ruangan</Text>
-        <Text style={styles.pin} accessibilityLabel={`PIN ${host.pin}`}>
-          {host.pin}
-        </Text>
-        <Text style={styles.pinHint}>
-          Berikan PIN hanya kepada orang yang Anda kenal. PIN membatasi
-          bergabung, bukan mengenkripsi suara atau lokasi.
-        </Text>
-      </Card>
-
+      {/* QR Code Card for Instant Camera Scan */}
       <Card style={styles.card}>
-        <View style={styles.row}>
-          <View style={styles.rowItem}>
-            <Text style={styles.label}>Port</Text>
-            <Text style={styles.value}>{host.port}</Text>
-          </View>
-          <View style={styles.rowItem}>
-            <Text style={styles.label}>ID ruangan</Text>
-            <Text style={styles.valueSmall} numberOfLines={1}>
-              {host.roomId}
+        <View style={styles.controlHeader}>
+          <Text style={styles.sectionTitle}>QR Code Gabung Cepat</Text>
+          <Badge
+            label={showQr ? 'Tutup QR' : 'Tampilkan QR'}
+            tone="primary"
+          />
+        </View>
+        <Text style={styles.body}>
+          Tamu cukup mengarahkan kamera ke QR code ini untuk bergabung secara
+          otomatis tanpa mengetik PIN atau IP.
+        </Text>
+        {showQr ? (
+          <View style={styles.qrContainer}>
+            <QrCodeView value={qrData} size={180} />
+            <Text style={styles.qrHint}>
+              Arahkan kamera HP tamu ke QR di atas
             </Text>
           </View>
-        </View>
-
-        <View style={styles.divider} />
-
-        <Text style={styles.label}>Alamat IP HP ini</Text>
-        <Text style={styles.ipHelp}>
-          Buka Pengaturan HP → Wi-Fi → jaringan yang sedang aktif, lalu lihat
-          alamat IP. Tamu mengetik IP itu dan port di atas pada menu Gabung
-          Ruangan.
-        </Text>
-        <Text style={styles.ipHint}>
-          Petunjuk umum: hotspot Android sering memakai 192.168.43.1, hotspot
-          iPhone sering memakai 172.20.10.1. Selalu cocokkan dengan pengaturan
-          HP.
-        </Text>
-
-        {!host.advertised ? (
-          <Text style={styles.warning}>
-            Pencarian otomatis tidak aktif. Peserta harus memakai IP dan port
-            manual.
-          </Text>
         ) : null}
+        <Button
+          label={showQr ? 'Sembunyikan QR' : 'Tampilkan QR Code Rombongan'}
+          variant="secondary"
+          onPress={() => setShowQr(v => !v)}
+          style={styles.control}
+        />
+      </Card>
+
+      {/* Direct Intercom Voice Control for Host */}
+      <Card style={styles.card}>
+        <View style={styles.controlHeader}>
+          <Text style={styles.sectionTitle}>Interkom Suara</Text>
+          <Badge
+            label={app.voiceActive ? 'Suara Aktif' : 'Suara Mati'}
+            tone={app.voiceActive ? 'success' : 'neutral'}
+          />
+        </View>
+        <Text style={styles.body}>
+          {app.voiceActive
+            ? 'Mikrofon dan interkom aktif. Anda dapat berbicara langsung dengan seluruh peserta.'
+            : 'Nyalakan mikrofon untuk mulai berbicara dengan peserta di rombongan Anda.'}
+        </Text>
+        {app.voiceActive ? (
+          <View style={styles.controlRow}>
+            <Button
+              label={selfMuted ? 'Bunyikan' : 'Bisukan'}
+              variant="secondary"
+              onPress={app.toggleMute}
+              style={styles.rowButton}
+            />
+            <Button
+              label="Keluar dari Suara"
+              variant="secondary"
+              onPress={app.leaveVoice}
+              style={styles.rowButton}
+            />
+          </View>
+        ) : (
+          <Button
+            label="Mulai Suara"
+            onPress={app.startVoice}
+            busy={app.voiceBusy}
+            disabled={app.voiceBusy}
+            style={styles.control}
+          />
+        )}
       </Card>
 
       <Card style={styles.card}>
         <View style={styles.listHeader}>
           <Text style={styles.listTitle}>
-            Peserta ({participants.length}/12)
+            Peserta ({participants.length}/16)
           </Text>
           <Text style={styles.listMeta}>
-            Suara {voiceParticipants.length}/6
+            Suara {voiceParticipants.length}/{room?.voiceCapacity || 16}
           </Text>
         </View>
         {participants.map(participant => (
@@ -164,132 +205,192 @@ export function HostRoomScreen({ app }: HostRoomScreenProps) {
         ))}
         {participants.length <= 1 ? (
           <Text style={styles.empty}>
-            Belum ada peserta. Minta tamu membuka Gabung Ruangan di HP mereka.
+            Belum ada tamu yang bergabung. Minta teman scan QR di atas atau
+            buka menu &quot;Gabung Ruangan&quot;.
           </Text>
         ) : null}
       </Card>
 
       <Button
-        label="Buka Ruang Suara"
+        label="Buka Peta Konvoi (GPS)"
+        onPress={() => app.navigate('map')}
+        style={styles.action}
+      />
+
+      <Button
+        label="Buka Ruang Suara Lengkap"
+        variant="secondary"
         onPress={() => app.navigate('room')}
         style={styles.action}
       />
+
+      {/* Collapsible Technical Details (IP, Port, PIN) */}
+      <Card style={styles.card}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Buka detail teknis ruangan"
+          onPress={() => setShowDetails(v => !v)}
+          style={styles.toggleHeader}
+        >
+          <Text style={styles.sectionTitle}>
+            Detail Teknis (IP, Port, PIN)
+          </Text>
+          <Badge
+            label={showDetails ? 'Tutup' : 'Buka'}
+            tone="neutral"
+          />
+        </Pressable>
+
+        {showDetails ? (
+          <View style={styles.detailsBody}>
+            <Text style={styles.label}>PIN ruangan</Text>
+            <Text style={styles.pin} accessibilityLabel={`PIN ${host.pin}`}>
+              {host.pin}
+            </Text>
+
+            <View style={styles.row}>
+              <View style={styles.rowItem}>
+                <Text style={styles.label}>Port</Text>
+                <Text style={styles.value}>{host.port}</Text>
+              </View>
+              <View style={styles.rowItem}>
+                <Text style={styles.label}>ID ruangan</Text>
+                <Text style={styles.valueSmall} numberOfLines={1}>
+                  {host.roomId}
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.ipHint}>
+              Tamu di Wi-Fi yang sama biasanya langsung terdeteksi otomatis
+              tanpa mengetik data ini.
+            </Text>
+          </View>
+        ) : (
+          <Text style={styles.hiddenText}>
+            PIN: {host.pin} · Port: {host.port}
+          </Text>
+        )}
+      </Card>
+
       <Button
         label="Tutup Ruangan"
         variant="danger"
         onPress={confirmClose}
-        style={styles.action}
       />
-
-      <Text style={styles.keepOpen}>
-        Biarkan layar ini terbuka selama ruangan berjalan. Konvoi hanya berjalan
-        di depan; hosting belum mendukung latar belakang atau layar terkunci.
-      </Text>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  pinCard: {
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  label: {
-    color: colors.muted,
-    fontSize: typography.tiny,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  pin: {
-    color: colors.primary,
-    fontSize: 48,
-    fontWeight: '900',
-    letterSpacing: 8,
-    marginVertical: spacing.sm,
-    fontVariant: ['tabular-nums'],
-  },
-  pinHint: {
-    color: colors.muted,
-    fontSize: typography.small,
-    lineHeight: 20,
-    textAlign: 'center',
-  },
   card: {
     marginBottom: spacing.lg,
   },
+  controlHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  sectionTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  body: {
+    color: colors.muted,
+    fontSize: 13,
+    marginBottom: spacing.md,
+  },
+  controlRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  rowButton: {
+    flex: 1,
+  },
+  control: {
+    marginTop: spacing.xs,
+  },
+  qrContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.md,
+  },
+  qrHint: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: spacing.sm,
+  },
+  listHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  listTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  listMeta: {
+    color: colors.muted,
+    fontSize: 12,
+  },
+  empty: {
+    color: colors.muted,
+    fontSize: 13,
+    paddingVertical: spacing.sm,
+  },
+  action: {
+    marginBottom: spacing.md,
+  },
+  toggleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  detailsBody: {
+    marginTop: spacing.md,
+  },
+  hiddenText: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: spacing.xs,
+  },
+  label: {
+    color: colors.muted,
+    fontSize: 11,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  pin: {
+    color: colors.text,
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: 6,
+    marginBottom: spacing.sm,
+  },
   row: {
     flexDirection: 'row',
-    gap: spacing.lg,
+    gap: spacing.md,
+    marginTop: spacing.xs,
   },
   rowItem: {
     flex: 1,
   },
   value: {
     color: colors.text,
-    fontSize: typography.heading,
-    fontWeight: '800',
-    marginTop: spacing.xs,
-    fontVariant: ['tabular-nums'],
+    fontSize: 16,
+    fontWeight: '700',
   },
   valueSmall: {
-    color: colors.text,
-    fontSize: typography.small,
-    fontWeight: '700',
-    marginTop: spacing.xs,
-  },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.border,
-    marginVertical: spacing.lg,
-  },
-  ipHelp: {
-    color: colors.text,
-    fontSize: typography.small,
-    lineHeight: 21,
-    marginTop: spacing.sm,
+    color: colors.muted,
+    fontSize: 12,
   },
   ipHint: {
     color: colors.muted,
-    fontSize: typography.small,
-    lineHeight: 20,
-    marginTop: spacing.sm,
-  },
-  warning: {
-    color: colors.warning,
-    fontSize: typography.small,
-    lineHeight: 20,
-    marginTop: spacing.md,
-  },
-  listHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.xs,
-  },
-  listTitle: {
-    color: colors.text,
-    fontSize: typography.body,
-    fontWeight: '800',
-  },
-  listMeta: {
-    color: colors.muted,
-    fontSize: typography.small,
-  },
-  empty: {
-    color: colors.muted,
-    fontSize: typography.small,
-    lineHeight: 20,
-    marginTop: spacing.md,
-  },
-  action: {
-    marginBottom: spacing.md,
-  },
-  keepOpen: {
-    color: colors.muted,
-    fontSize: typography.tiny,
-    lineHeight: 18,
-    textAlign: 'center',
+    fontSize: 11,
     marginTop: spacing.sm,
   },
 });
