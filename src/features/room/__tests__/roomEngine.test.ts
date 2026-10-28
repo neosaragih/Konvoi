@@ -86,6 +86,10 @@ function base() {
   return { protocolVersion: PROTOCOL_VERSION, roomId: ROOM.roomId };
 }
 
+function ping(): ClientMessage {
+  return { ...base(), type: 'PING' };
+}
+
 function voiceJoin(): ClientMessage {
   return { ...base(), type: 'VOICE_JOIN' };
 }
@@ -519,6 +523,19 @@ describe('RoomEngine removal and lifecycle', () => {
       messageOfType(events, HOST_CONNECTION_ID, 'PARTICIPANT_LEFT'),
     ).toMatchObject({ participantId: 'p1', reason: 'TIMEOUT' });
     expect(engine.getSnapshot().participants).toHaveLength(1);
+  });
+
+  it('keeps a guest alive when it pings before the timeout', () => {
+    const { engine, advance } = createHarness();
+    engine.join('c1', joinRequest());
+
+    advance(20_000);
+    const pong = engine.handle('c1', ping());
+    expect(messageOfType(pong, 'c1', 'PONG')).toBeDefined();
+
+    advance(20_000);
+    expect(engine.tick()).toEqual([]);
+    expect(engine.getSnapshot().participants).toHaveLength(2);
   });
 
   it('treats a host disconnect as closing the room', () => {

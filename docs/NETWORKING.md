@@ -82,8 +82,11 @@ what is still unverified.
    snapshot, voice roster, and voice capacity, or `JOIN_REJECTED` with a reason.
 5. After acceptance, every client message carries `protocolVersion` and the
    adopted `roomId`. Messages for another room are ignored.
-6. Guests send `PING` every 10 s. The host drops a connection after 30 s of
-   silence and broadcasts `PARTICIPANT_LEFT`.
+6. `ClientSession` starts a `PING` heartbeat automatically when the host
+   accepts the join, every 10 s. The host drops a connection after 30 s of
+   silence and broadcasts `PARTICIPANT_LEFT`. A guest that receives no valid
+   host message for 30 s closes the socket and shows the disconnected state, so
+   a dead host does not leave a zombie room on screen.
 
 Rejection reasons: `WRONG_PIN`, `ROOM_FULL`, `ROOM_CLOSED`,
 `INCOMPATIBLE_PROTOCOL`, `INVALID_REQUEST`, `RATE_LIMITED`.
@@ -144,6 +147,11 @@ manifest; the app manifest repeats them so the requirement is auditable.
   in the foreground, and check that the network is not using client isolation.
   Some guest Wi-Fi networks block all peer-to-peer traffic; Konvoi will not route
   around that through the internet.
+- **Guest drops after about 30 s:** the guest heartbeat must run. It starts
+  automatically on `JOIN_ACCEPTED`; keep it that way when changing
+  `ClientSession`. Also keep the app in the foreground with the screen on:
+  Android Doze and screen-lock can suspend TCP sockets. Background hosting is
+  out of scope for release 1.
 - **Guest connects but voice fails:** check that both phones can reach each
   other directly. ICE failures on a LAN must be reported as a
   network/client-isolation problem, never worked around with STUN/TURN. See

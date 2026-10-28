@@ -27,9 +27,19 @@ export class TcpHostConnection implements HostConnection {
   private lastError: Error | null = null;
 
   constructor(readonly id: string, private readonly socket: Socket) {
+    this.applySocketOptions();
     socket.on('data', this.handleData);
     socket.on('close', this.handleClose);
     socket.on('error', this.handleError);
+  }
+
+  private applySocketOptions(): void {
+    try {
+      this.socket.setNoDelay(true);
+      this.socket.setKeepAlive(true);
+    } catch {
+      // Best effort; the app-level PING is the reliable keepalive.
+    }
   }
 
   get isClosed(): boolean {
@@ -241,6 +251,12 @@ export class TcpClient implements ClientTransport {
     private readonly socket: Socket,
     private readonly handlers: TcpClientHandlers = {},
   ) {
+    try {
+      socket.setNoDelay(true);
+      socket.setKeepAlive(true);
+    } catch {
+      // Best effort; the app-level PING is the reliable keepalive.
+    }
     socket.on('data', this.handleData);
     socket.on('close', this.handleClose);
     socket.on('error', this.handleError);

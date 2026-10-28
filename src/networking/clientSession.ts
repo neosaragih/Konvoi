@@ -12,6 +12,7 @@ import type {
   VoiceSignal,
 } from '../protocol/messageTypes';
 import {
+  CONNECTION_TIMEOUT_MS,
   HEARTBEAT_INTERVAL_MS,
   PROTOCOL_VERSION,
 } from '../protocol/protocolVersion';
@@ -53,6 +54,13 @@ export interface ClientSessionHandlers {
 export interface ClientSessionDeps {
   now?: () => number;
   generateClientMessageId?: () => string;
+  /**
+   * Send PING automatically once the host accepts the join. Default true: a
+   * joined guest that never pings is dropped by the host's idle timeout.
+   */
+  autoHeartbeat?: boolean;
+  /** Heartbeat period; tests can shorten it. */
+  heartbeatIntervalMs?: number;
 }
 
 /**
@@ -65,9 +73,12 @@ export class ClientSession {
   private readonly framer = new NdjsonFramer();
   private readonly now: () => number;
   private readonly generateClientMessageId: () => string;
+  private readonly autoHeartbeat: boolean;
+  private readonly heartbeatIntervalMs: number;
   private state: ClientRoomState;
   private closed = false;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private lastServerMessageAt = 0;
 
   constructor(
     private readonly transport: ClientTransport,
@@ -75,6 +86,10 @@ export class ClientSession {
     deps: ClientSessionDeps = {},
   ) {
     this.now = deps.now ?? Date.now;
+    this.autoHeartbeat = deps.autoHeartbeat ?? true;
+    this.heartbeatIntervalMs =
+      deps.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS;
+    this.lastServerMessageAt = this.now();
     let sequence = 0;
     this.generateClientMessageId =
       deps.generateClientMessageId ??
@@ -163,15 +178,45 @@ export class ClientSession {
     this.send({ type: 'LOCATION_SHARING_STOP' });
   }
 
-  startHeartbeat(intervalMs: number = HEARTBEAT_INTERVAL_MS): void {
+  startHeartbeat(intervalMs: number = this.heartbeatIntervalMs): void {
     this.stopHeartbeat();
-    this.heartbeatTimer = setInterval(() => this.ping(), intervalMs);
+    this.lastServerMessageAt = this.now();
+    this.heartbeatTimer = setInterval(() => this.heartbeatTick(), intervalMs);
   }
 
   stopHeartbeat(): void {
     if (this.heartbeatTimer !== null) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
+    }
+  }
+
+  /**
+   * A PING keeps the host's 30 s idle timeout from dropping us. If the host
+   * stops answering (Wi-Fi drop, app killed), close the socket and surface a
+   * `disconnected` state instead of leaving a zombie room on screen.
+   */
+  private heartbeatTick(): void {
+    if (this.closed) {
+      this.stopHeartbeat();
+      return;
+    }
+    if (this.now() - this.lastServerMessageAt >= CONNECTION_TIMEOUT_MS) {
+      this.handleDeadConnection();
+      return;
+    }
+    this.ping();
+  }
+
+  private handleDeadConnection(): void {
+    if (this.closed) {
+      return;
+    }
+    this.stopHeartbeat();
+    try {
+      this.transport.close();
+    } finally {
+      this.handleTransportClose();
     }
   }
 
@@ -215,7 +260,17 @@ export class ClientSession {
       return;
     }
 
-    this.state = reduceServerMessage(this.state, message, this.now());
+    const receivedAt = this.now();
+    this.state = reduceServerMessage(this.state, message, receivedAt);
+    this.lastServerMessageAt = receivedAt;
+
+    if (
+      this.autoHeartbeat &&
+      message.type === 'JOIN_ACCEPTED' &&
+      this.heartbeatTimer === null
+    ) {
+      this.startHeartbeat();
+    }
 
     if (message.type === 'VOICE_SIGNAL') {
       this.handlers.onVoiceSignal?.(message);

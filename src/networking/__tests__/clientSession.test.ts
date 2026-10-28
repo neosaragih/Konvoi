@@ -5,6 +5,15 @@ import { ClientSession, type ClientTransport } from '../clientSession';
 
 const ROOM_ID = 'room-1';
 
+const openSessions: ClientSession[] = [];
+
+afterEach(() => {
+  for (const session of openSessions) {
+    session.close();
+  }
+  openSessions.length = 0;
+});
+
 const base = {
   protocolVersion: PROTOCOL_VERSION,
   roomId: ROOM_ID,
@@ -110,6 +119,7 @@ function createHarness(): Harness {
       generateClientMessageId: () => 'client-1',
     },
   );
+  openSessions.push(session);
 
   return {
     session,
@@ -433,5 +443,48 @@ describe('ClientSession heartbeat', () => {
     harness.session.close();
     jest.advanceTimersByTime(2_000);
     expect(harness.transport.messages().length).toBe(before + 2);
+  });
+
+  it('starts pinging automatically once the join is accepted', () => {
+    const harness = createHarness();
+    joinAndAccept(harness);
+    const before = harness.transport.messages().length;
+
+    harness.clock.now += 10_000;
+    jest.advanceTimersByTime(10_000);
+
+    const pings = harness.transport
+      .messages()
+      .slice(before)
+      .filter(message => message.type === 'PING');
+    expect(pings).toHaveLength(1);
+  });
+
+  it('stays joined while the host answers PONGs', () => {
+    const harness = createHarness();
+    joinAndAccept(harness);
+    const pong: ServerMessage = { ...base, type: 'PONG' };
+
+    for (let tick = 0; tick < 5; tick += 1) {
+      harness.clock.now += 10_000;
+      jest.advanceTimersByTime(10_000);
+      harness.transport.receiveMessage(pong);
+    }
+
+    expect(harness.session.getState().status).toBe('joined');
+    expect(harness.transport.closed).toBe(false);
+  });
+
+  it('disconnects when the host stops answering heartbeats', () => {
+    const harness = createHarness();
+    joinAndAccept(harness);
+
+    for (let tick = 0; tick < 3; tick += 1) {
+      harness.clock.now += 10_000;
+      jest.advanceTimersByTime(10_000);
+    }
+
+    expect(harness.session.getState().status).toBe('disconnected');
+    expect(harness.transport.closed).toBe(true);
   });
 });

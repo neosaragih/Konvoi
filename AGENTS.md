@@ -43,6 +43,7 @@ Konvoi is a **voice-first** React Native app: the host phone runs a room server 
 - **Wire format:** UTF-8 NDJSON in `src/networking/ndjsonFramer.ts`. Byte-level, per-connection buffer, max frame size, resync after oversized lines. A TCP chunk is not a message.
 - **Protocol:** `src/protocol/{messageTypes,validators,protocolVersion}.ts`. Host assigns participant IDs and timestamps; clients never supply identity. Validate on both ends.
 - **Voice mesh:** `src/voice/voiceSignaling.ts`. For each pair, the lexicographically smaller participant ID offers; the other answers. Signaling goes through the host's TCP room; media is P2P WebRTC with `iceServers: []`.
+- **Heartbeat:** `ClientSession` starts `PING` automatically on `JOIN_ACCEPTED` (every 10 s). The host drops silent guests after 30 s; the guest closes after 30 s without host messages. Do not make heartbeat caller-owned again.
 - **Installed native modules:** `react-native-tcp-socket` 6.4.3, `react-native-zeroconf` 0.17.6, `react-native-webrtc` 155.0.1. **Planned:** MapLibre, geolocation. Add one at a time, verify RN 0.88/New Architecture support, and let CI prove it compiles.
 - **Tests:** `src/**/__tests__/*.test.ts`; protocol/engine tests must not import native modules.
 
