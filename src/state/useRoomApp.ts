@@ -723,9 +723,13 @@ export function useRoomApp(): RoomApp {
           advertised,
         });
         setGuest(null);
-        
-        startForegroundNotification('Konvoi Host Aktif', 'Ruangan ' + config.roomName + ' aktif sebagai host',
+        setRoom(session.room.getState());
+        setScreen('host');
+        startForegroundNotification(
+          'Konvoi Host Aktif',
+          'Ruangan ' + config.roomName + ' aktif sebagai host',
         );
+      } catch {
         disposeHost();
         setHost(null);
         setRoom(null);
