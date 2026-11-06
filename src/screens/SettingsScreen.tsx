@@ -67,7 +67,7 @@ export function SettingsScreen({ app }: SettingsScreenProps) {
           Host harus tetap di depan layar. Belum ada hosting latar belakang,
           audio latar belakang, atau lokasi latar belakang.
         </Text>
-        <Text style={styles.meta}>Kapasitas: 12 peserta · 6 di suara.</Text>
+        <Text style={styles.meta}>Kapasitas: 12 peserta · 12 di suara.</Text>
       </Section>
 
       <Section title="Suara & Bluetooth" badge="Belum teruji">

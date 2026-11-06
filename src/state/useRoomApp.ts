@@ -156,6 +156,7 @@ export function useRoomApp(): RoomApp {
   const [host, setHost] = useState<HostRoomInfo | null>(null);
   const [guest, setGuest] = useState<GuestRoomInfo | null>(null);
   const [room, setRoom] = useState<ClientRoomState | null>(null);
+  const roomRef = useRef<ClientRoomState | null>(null);
   const [rooms, setRooms] = useState<DiscoveredRoom[]>([]);
   const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -213,6 +214,7 @@ export function useRoomApp(): RoomApp {
     voiceRef.current = null;
     manager?.stop();
     setVoiceActive(false);
+    setVoiceBusy(false);
     setPeerStates({});
 
     if (!notify) {
@@ -340,6 +342,7 @@ export function useRoomApp(): RoomApp {
       if (!mountedRef.current) {
         return;
       }
+      roomRef.current = state;
       setRoom(state);
       if (state.status !== 'closed') {
         return;
@@ -348,6 +351,7 @@ export function useRoomApp(): RoomApp {
       // already handles navigation and notices.
       const alreadyClosing = closingHostRef.current;
       disposeHost();
+      roomRef.current = null;
       setHost(null);
       setGuest(null);
       setRoom(null);
@@ -364,6 +368,7 @@ export function useRoomApp(): RoomApp {
       if (!mountedRef.current) {
         return;
       }
+      roomRef.current = state;
       setRoom(state);
 
       switch (state.status) {
@@ -390,7 +395,11 @@ export function useRoomApp(): RoomApp {
           clearJoinTimer();
           setBusy(false);
           setError(joinRejectionText(state));
+          reconnectingRef.current = false;
+          setReconnecting(false);
+          lastJoinedRef.current = null;
           disposeGuest();
+          roomRef.current = null;
           setGuest(null);
           setScreen('join');
           break;
@@ -399,7 +408,11 @@ export function useRoomApp(): RoomApp {
           clearJoinTimer();
           setBusy(false);
           setError('Anda dikeluarkan dari ruangan oleh host.');
+          reconnectingRef.current = false;
+          setReconnecting(false);
+          lastJoinedRef.current = null;
           disposeGuest();
+          roomRef.current = null;
           setGuest(null);
           setRoom(null);
           setScreen('join');
@@ -409,7 +422,11 @@ export function useRoomApp(): RoomApp {
           clearJoinTimer();
           setBusy(false);
           setError('Host menutup ruangan.');
+          reconnectingRef.current = false;
+          setReconnecting(false);
+          lastJoinedRef.current = null;
           disposeGuest();
+          roomRef.current = null;
           setGuest(null);
           setRoom(null);
           setScreen('join');
@@ -437,6 +454,7 @@ export function useRoomApp(): RoomApp {
               'Koneksi terputus. Pastikan kedua HP berada di Wi-Fi/hotspot yang sama, lalu coba lagi.',
             );
             disposeGuest();
+            roomRef.current = null;
             setGuest(null);
             setRoom(null);
             setScreen('join');
@@ -454,14 +472,23 @@ export function useRoomApp(): RoomApp {
   );
 
   const startVoice = useCallback(async () => {
-    if (lastJoinedRef.current) lastJoinedRef.current.voiceWasActive = true;
-    if (voiceRef.current || !room || room.status !== 'joined' || !room.selfId) {
+    const currentRoom = roomRef.current;
+    if (
+      voiceRef.current ||
+      !currentRoom ||
+      currentRoom.status !== 'joined' ||
+      !currentRoom.selfId
+    ) {
       return;
     }
+    if (!hostSessionRef.current && !guestSessionRef.current) {
+      return;
+    }
+    const selfId = currentRoom.selfId;
     if (
-      room.voiceParticipants.filter(
-        entry => entry.participantId !== room.selfId,
-      ).length >= room.voiceCapacity
+      currentRoom.voiceParticipants.filter(
+        entry => entry.participantId !== selfId,
+      ).length >= currentRoom.voiceCapacity
     ) {
       setError(
         'Kapasitas suara penuh. Keluar dari suara di HP lain atau tunggu sampai ada yang keluar.',
@@ -506,6 +533,19 @@ export function useRoomApp(): RoomApp {
       },
     });
 
+    // Set the ref before the permission prompt so leave/kick/close can abort
+    // a start that is still waiting for the user or the microphone.
+    voiceRef.current = manager;
+    let announced = false;
+
+    const leaveVoiceRoster = () => {
+      if (!announced) {
+        return;
+      }
+      hostSessionRef.current?.room.leaveVoice();
+      guestSessionRef.current?.session.leaveVoice();
+    };
+
     if (Platform.OS === 'android') {
       try {
         if (Platform.Version >= 33) {
@@ -513,70 +553,96 @@ export function useRoomApp(): RoomApp {
             'android.permission.POST_NOTIFICATIONS' as any,
           );
         }
-        const granted = await PermissionsAndroid.request(
+        const hasAudio = await PermissionsAndroid.check(
           PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-          {
-            title: 'Izin Mikrofon',
-            message: 'Konvoi membutuhkan mikrofon untuk komunikasi suara antar-pengendara.',
-            buttonPositive: 'Izinkan',
-            buttonNegative: 'Batal',
-          },
         );
-        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-          setVoiceBusy(false);
-          setError('Izin mikrofon ditolak. Aktifkan izin mikrofon di pengaturan HP untuk berbicara.');
-          return;
+        if (!hasAudio) {
+          const granted = await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+            {
+              title: 'Izin Mikrofon',
+              message:
+                'Konvoi membutuhkan mikrofon untuk komunikasi suara antar-pengendara.',
+              buttonPositive: 'Izinkan',
+              buttonNegative: 'Batal',
+            },
+          );
+          if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+            manager.stop();
+            if (voiceRef.current === manager) {
+              voiceRef.current = null;
+            }
+            setVoiceBusy(false);
+            setError(
+              'Izin mikrofon ditolak. Aktifkan izin mikrofon di pengaturan HP untuk berbicara.',
+            );
+            return;
+          }
         }
       } catch {}
     }
 
-    if (Platform.OS === 'android' && NativeModules.KonvoiLocationModule?.setSpeakerphoneOn) {
+    if (
+      Platform.OS === 'android' &&
+      NativeModules.KonvoiLocationModule?.setSpeakerphoneOn
+    ) {
       try {
         await NativeModules.KonvoiLocationModule.setSpeakerphoneOn(true);
       } catch {}
     }
 
-    voiceRef.current = manager;
-
-    // Join voice in room engine BEFORE manager.start() so member.voice is TRUE
-    // and WebRTC offers/candidates are not rejected with NOT_IN_VOICE
-    if (hostSessionRef.current) {
-      hostSessionRef.current.room.joinVoice();
-    } else {
-      guestSessionRef.current?.session.joinVoice();
+    if (!mountedRef.current || voiceRef.current !== manager) {
+      manager.stop();
+      if (voiceRef.current === manager) {
+        voiceRef.current = null;
+      }
+      if (mountedRef.current) {
+        setVoiceBusy(false);
+      }
+      return;
     }
 
     try {
-      const started = await manager.start(
-        room.selfId,
-        room.voiceParticipants.map(entry => entry.participantId),
-      );
+      // Open the mic before joining the voice roster. Peers only learn that
+      // we are in voice after `manager.start()` resolves, so an offer can
+      // never arrive while this manager is still unable to process it.
+      const started = await manager.start(selfId);
       if (!started || !mountedRef.current || voiceRef.current !== manager) {
         manager.stop();
         if (voiceRef.current === manager) {
           voiceRef.current = null;
         }
-        if (hostSessionRef.current) {
-          hostSessionRef.current.room.leaveVoice();
-        } else {
-          guestSessionRef.current?.session.leaveVoice();
-        }
         return;
       }
-      
+
+      if (hostSessionRef.current) {
+        hostSessionRef.current.room.joinVoice();
+      } else {
+        guestSessionRef.current?.session.joinVoice();
+      }
+      announced = true;
+
+      // Connect to participants who were already in voice. Participants who
+      // join later are added by the effect watching `voiceRosterIds`.
+      const latestRoom = roomRef.current ?? currentRoom;
+      manager.syncPeers(
+        latestRoom.voiceParticipants.map(entry => entry.participantId),
+      );
+
+      if (lastJoinedRef.current) {
+        lastJoinedRef.current.voiceWasActive = true;
+      }
+      setVoiceActive(true);
       startForegroundNotification(
         'Konvoi Interkom Aktif',
         'Terhubung dalam rombongan · Interkom suara aktif',
       );
+    } catch {
       manager.stop();
       if (voiceRef.current === manager) {
         voiceRef.current = null;
       }
-      if (hostSessionRef.current) {
-        hostSessionRef.current.room.leaveVoice();
-      } else {
-        guestSessionRef.current?.session.leaveVoice();
-      }
+      leaveVoiceRoster();
       if (mountedRef.current) {
         setError(
           'Mikrofon tidak bisa diaktifkan. Beri izin mikrofon untuk Konvoi di pengaturan HP, lalu coba lagi.',
@@ -587,9 +653,12 @@ export function useRoomApp(): RoomApp {
         setVoiceBusy(false);
       }
     }
-  }, [room, startForegroundNotification]);
+  }, [startForegroundNotification]);
 
   const leaveVoice = useCallback(() => {
+    if (lastJoinedRef.current) {
+      lastJoinedRef.current.voiceWasActive = false;
+    }
     stopVoice(true);
     if (room?.roomName) {
       startForegroundNotification('Konvoi Terhubung', 'Terhubung di rombongan ' + (room?.roomName ?? ''),
@@ -723,7 +792,9 @@ export function useRoomApp(): RoomApp {
           advertised,
         });
         setGuest(null);
-        setRoom(session.room.getState());
+        const initialState = session.room.getState();
+        roomRef.current = initialState;
+        setRoom(initialState);
         setScreen('host');
         startForegroundNotification(
           'Konvoi Host Aktif',
@@ -732,6 +803,7 @@ export function useRoomApp(): RoomApp {
       } catch {
         disposeHost();
         setHost(null);
+        roomRef.current = null;
         setRoom(null);
         setError(
           'Tidak bisa membuka server lokal. Pastikan Wi-Fi/hotspot aktif, lalu coba lagi.',
@@ -771,6 +843,7 @@ export function useRoomApp(): RoomApp {
       setBusy(true);
       setError(null);
       setNotice(null);
+      roomRef.current = null;
       setRoom(null);
 
       let session: GuestTcpSession;
@@ -807,12 +880,19 @@ export function useRoomApp(): RoomApp {
         }
         const status = guestSessionRef.current?.session.getState().status;
         if (status !== 'joined') {
+          const retrying = reconnectingRef.current && lastJoinedRef.current;
           setBusy(false);
-          setError(
-            'Tidak ada jawaban dari host. Periksa IP/port, PIN, dan pastikan kedua HP di Wi-Fi yang sama.',
-          );
+          if (!retrying) {
+            setError(
+              'Tidak ada jawaban dari host. Periksa IP/port, PIN, dan pastikan kedua HP di Wi-Fi yang sama.',
+            );
+          }
           disposeGuest();
+          roomRef.current = null;
           setGuest(null);
+          if (retrying) {
+            triggerAutoReconnectRef.current();
+          }
         }
       }, JOIN_TIMEOUT_MS);
 
@@ -822,8 +902,11 @@ export function useRoomApp(): RoomApp {
         host: hostAddress,
         port: String(port),
         roomId: input.roomId,
-        voiceWasActive: voiceActive,
-        locationWasActive: locationSharingActive,
+        voiceWasActive:
+          lastJoinedRef.current?.voiceWasActive === true || voiceActive,
+        locationWasActive:
+          lastJoinedRef.current?.locationWasActive === true ||
+          locationSharingActive,
       };
 
       session.join({
@@ -850,6 +933,7 @@ export function useRoomApp(): RoomApp {
       setGuest(null);
     }
     setRoom(null);
+    roomRef.current = null;
     setBusy(false);
     setScreen('home');
     setNotice(wasHost ? 'Ruangan ditutup.' : 'Anda keluar dari ruangan.');
@@ -935,8 +1019,8 @@ export function useRoomApp(): RoomApp {
   }, [clearReconnectTimer, startDiscovery]);
 
     const startLocationSharing = useCallback(async () => {
-    if (lastJoinedRef.current) lastJoinedRef.current.locationWasActive = true;
-    if (!room || room.status !== 'joined' || !room.selfId) {
+    const currentRoom = roomRef.current;
+    if (!currentRoom || currentRoom.status !== 'joined' || !currentRoom.selfId) {
       return;
     }
     const started = await locationService.startTracking(location => {
@@ -947,6 +1031,9 @@ export function useRoomApp(): RoomApp {
       }
     });
     if (started) {
+      if (lastJoinedRef.current) {
+        lastJoinedRef.current.locationWasActive = true;
+      }
       setLocationSharingActive(true);
       if (hostSessionRef.current) {
         hostSessionRef.current.room.setLocationSharing(true);
@@ -954,13 +1041,19 @@ export function useRoomApp(): RoomApp {
         guestSessionRef.current?.session.setLocationSharing(true);
       }
     } else {
+      if (lastJoinedRef.current) {
+        lastJoinedRef.current.locationWasActive = false;
+      }
       setError('Izin GPS ditolak atau GPS tidak aktif. Aktifkan GPS untuk berbagi lokasi.');
     }
-  }, [room]);
+  }, []);
 
   const stopLocationSharing = useCallback(() => {
     locationService.stopTracking();
     setLocationSharingActive(false);
+    if (lastJoinedRef.current) {
+      lastJoinedRef.current.locationWasActive = false;
+    }
     if (hostSessionRef.current) {
       hostSessionRef.current.room.stopLocationSharing();
     } else {
@@ -975,6 +1068,15 @@ export function useRoomApp(): RoomApp {
 
   const dismissError = useCallback(() => setError(null), []);
   const dismissNotice = useCallback(() => setNotice(null), []);
+
+  // Keep the late-bound callbacks fresh without making the reconnect/state
+  // callbacks depend on them (those refs break the React dependency cycle).
+  useEffect(() => {
+    startVoiceRef.current = startVoice;
+    startLocationSharingRef.current = startLocationSharing;
+    triggerAutoReconnectRef.current = triggerAutoReconnect;
+    joinRoomRef.current = joinRoom;
+  }, [joinRoom, startLocationSharing, startVoice, triggerAutoReconnect]);
 
   return {
     screen,

@@ -13,6 +13,8 @@ interface ParticipantTileProps {
   sharing: boolean;
   /** Local P2P state for remote voice peers; the host cannot observe media. */
   peerState?: VoicePeerState;
+  /** Whether this device has an active local voice session. */
+  localVoiceActive?: boolean;
   onKick?: () => void;
 }
 
@@ -23,6 +25,7 @@ export function ParticipantTile({
   voice,
   sharing,
   peerState,
+  localVoiceActive,
   onKick,
 }: ParticipantTileProps) {
   const initial = participant.displayName.trim().charAt(0).toUpperCase() || '?';
@@ -36,6 +39,10 @@ export function ParticipantTile({
     }
     if (isSelf) {
       return { label: 'Mikrofon aktif', tone: 'success' };
+    }
+    if (localVoiceActive === false) {
+      // No local manager exists yet, so there is no P2P state to show.
+      return { label: 'Di suara', tone: 'primary' };
     }
     switch (peerState) {
       case 'failed':

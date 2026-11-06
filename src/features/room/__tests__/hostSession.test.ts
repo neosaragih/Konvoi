@@ -119,7 +119,7 @@ describe('HostRoomSession', () => {
     expect(state.roomName).toBe('Konvoi');
     expect(state.selfId).toBe('host');
     expect(state.hostId).toBe('host');
-    expect(state.voiceCapacity).toBe(16);
+    expect(state.voiceCapacity).toBe(12);
     expect(state.participants).toHaveLength(1);
     expect(state.participants[0].id).toBe('host');
     expect(state.voiceParticipants).toEqual([]);

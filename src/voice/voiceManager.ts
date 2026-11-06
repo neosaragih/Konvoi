@@ -36,6 +36,13 @@ interface Peer {
   remoteDescriptionSet: boolean;
   pendingCandidates: RTCIceCandidate[];
   reportedFailure: boolean;
+  /** Handle for the ICE-connection timeout so it can be cleared on close. */
+  iceTimeoutId: ReturnType<typeof setTimeout> | null;
+}
+
+interface PendingSignal {
+  fromId: string;
+  signal: VoiceSignal;
 }
 
 /**
@@ -49,6 +56,8 @@ export class VoiceManager {
   private stream: MediaStream | null = null;
   private track: MediaStreamTrack | null = null;
   private readonly peers = new Map<string, Peer>();
+  private readonly pendingSignals: PendingSignal[] = [];
+  private static readonly MAX_PENDING_SIGNALS = 200;
   private roster: string[] = [];
   private localId: string | null = null;
   private started = false;
@@ -66,16 +75,17 @@ export class VoiceManager {
   }
 
   /**
-   * Open the microphone and connect to the current voice roster.
+   * Open the microphone. This deliberately does not create peer connections
+   * or send offers: the caller announces the participant in the voice roster
+   * first, then calls `syncPeers` with the authoritative roster. That ordering
+   * guarantees this manager is able to handle offers before any peer can see
+   * it in voice.
    *
    * Resolves false when `stop()` was called while the permission prompt or
    * `getUserMedia` was still pending; the caller must not join the voice
    * roster in that case.
    */
-  async start(
-    localId: string,
-    voiceParticipantIds: readonly string[],
-  ): Promise<boolean> {
+  async start(localId: string): Promise<boolean> {
     if (this.started) {
       return true;
     }
@@ -112,7 +122,9 @@ export class VoiceManager {
       this.handlers.onEnded?.();
     };
 
-    this.syncPeers(voiceParticipantIds);
+    // A peer may have signaled us in the tiny window before the microphone
+    // finished opening. Replay those messages now that we can handle them.
+    await this.drainPendingSignals();
     return true;
   }
 
@@ -138,7 +150,16 @@ export class VoiceManager {
   }
 
   async handleSignal(fromId: string, signal: VoiceSignal): Promise<void> {
-    if (!this.started || !this.localId || fromId === this.localId) {
+    if (this.disposed) {
+      return;
+    }
+    if (!this.localId || !this.started) {
+      if (this.pendingSignals.length < VoiceManager.MAX_PENDING_SIGNALS) {
+        this.pendingSignals.push({ fromId, signal });
+      }
+      return;
+    }
+    if (fromId === this.localId) {
       return;
     }
 
@@ -230,6 +251,7 @@ export class VoiceManager {
   stop(): void {
     this.disposed = true;
     this.started = false;
+    this.pendingSignals.length = 0;
 
     for (const peerId of Array.from(this.peers.keys())) {
       this.closePeer(peerId);
@@ -258,6 +280,16 @@ export class VoiceManager {
     this.muted = false;
   }
 
+  private async drainPendingSignals(): Promise<void> {
+    const pending = this.pendingSignals.splice(0);
+    for (const entry of pending) {
+      if (this.disposed || !this.started) {
+        return;
+      }
+      await this.handleSignal(entry.fromId, entry.signal);
+    }
+  }
+
   private createPeer(peerId: string): Peer {
     const pc = new RTCPeerConnection({ iceServers: [] });
     const peer: Peer = {
@@ -269,6 +301,7 @@ export class VoiceManager {
       remoteDescriptionSet: false,
       pendingCandidates: [],
       reportedFailure: false,
+      iceTimeoutId: null,
     };
 
     pc.onicecandidate = event => {
@@ -288,8 +321,39 @@ export class VoiceManager {
       });
     };
 
+    // ICE connection timeout: if still connecting after 20 s, report failure.
+    peer.iceTimeoutId = setTimeout(() => {
+      peer.iceTimeoutId = null;
+      if (
+        this.peers.get(peerId) === peer &&
+        pc.iceConnectionState !== 'connected' &&
+        pc.iceConnectionState !== 'completed' &&
+        pc.iceConnectionState !== 'closed'
+      ) {
+        if (!peer.reportedFailure) {
+          peer.reportedFailure = true;
+          this.handlers.onError?.(
+            'Tidak bisa terhubung ke peserta lain. Pastikan semua HP berada di Wi-Fi/hotspot yang sama dan router tidak memakai client isolation.',
+          );
+        }
+        this.handlers.onPeerState?.(peerId, 'failed');
+      }
+    }, 20000);
+
     pc.onconnectionstatechange = () => {
       const state = pc.connectionState as VoicePeerState;
+      // Cancel the timeout once ICE reaches a terminal or connected state.
+      if (
+        state === 'connected' ||
+        state === 'failed' ||
+        state === 'closed' ||
+        state === 'disconnected'
+      ) {
+        if (peer.iceTimeoutId !== null) {
+          clearTimeout(peer.iceTimeoutId);
+          peer.iceTimeoutId = null;
+        }
+      }
       this.handlers.onPeerState?.(peerId, state);
       if (state === 'failed' && !peer.reportedFailure) {
         peer.reportedFailure = true;
@@ -299,10 +363,46 @@ export class VoiceManager {
       }
     };
 
+    // Also watch iceConnectionState: on some Android builds connectionState
+    // may not update reliably, but iceConnectionState does.
+    pc.addEventListener('iceconnectionstatechange', () => {
+      const iceState = pc.iceConnectionState;
+      if (iceState === 'connected' || iceState === 'completed') {
+        if (peer.iceTimeoutId !== null) {
+          clearTimeout(peer.iceTimeoutId);
+          peer.iceTimeoutId = null;
+        }
+        // Reflect as 'connected' for UI purposes when connectionState lags.
+        if (
+          pc.connectionState !== 'connected' &&
+          pc.connectionState !== 'closed'
+        ) {
+          this.handlers.onPeerState?.(peerId, 'connected');
+        }
+      } else if (iceState === 'failed') {
+        if (peer.iceTimeoutId !== null) {
+          clearTimeout(peer.iceTimeoutId);
+          peer.iceTimeoutId = null;
+        }
+        if (!peer.reportedFailure) {
+          peer.reportedFailure = true;
+          this.handlers.onError?.(
+            'Koneksi suara gagal (ICE). Pastikan Wi-Fi tidak memakai client isolation, lalu coba lagi.',
+          );
+        }
+        this.handlers.onPeerState?.(peerId, 'failed');
+      }
+    });
+
     pc.ontrack = event => {
-      const anyEvent = event as unknown as { track?: { enabled: boolean } };
-      if (anyEvent?.track) {
-        anyEvent.track.enabled = true;
+      // RTCTrackEvent carries { track, streams, transceiver, receiver }.
+      const trackEvent = event as unknown as {
+        track?: { enabled: boolean };
+        streams?: unknown[];
+      };
+      if (trackEvent?.track) {
+        // Ensure incoming audio is not muted.
+        trackEvent.track.enabled = true;
       }
     };
 
@@ -354,8 +454,13 @@ export class VoiceManager {
       return;
     }
     this.peers.delete(peerId);
+    if (peer.iceTimeoutId !== null) {
+      clearTimeout(peer.iceTimeoutId);
+      peer.iceTimeoutId = null;
+    }
     peer.pc.onicecandidate = null;
     peer.pc.onconnectionstatechange = null;
+    peer.pc.ontrack = null;
     try {
       peer.pc.close();
     } catch {

@@ -52,7 +52,7 @@ Konvoi is a **voice-first** React Native app: the host phone runs a room server 
 - **No runtime internet.** No cloud/hosted signaling, analytics, remote fonts/images, CDN assets, or remote map styles/tiles.
 - **Don't add STUN/TURN** to make voice connect, not even a public Google server. If ICE fails, show a LAN/client-isolation error.
 - **No E2E/encryption claims.** The PIN gates joining; signaling and location are plaintext on the LAN. Never write "secure", "private", or "encrypted" in UI/docs.
-- **Mic is opt-in.** It starts only on explicit Start Voice, is visibly indicated, and must stop on Leave Voice, room leave/kick/close, or permission revocation. Voice cap 6, room cap 12.
+- **Mic is opt-in.** It starts only on explicit Start Voice, is visibly indicated, and must stop on Leave Voice, room leave/kick/close, or permission revocation. Voice cap 12 (same as room), room cap 12.
 - **Bluetooth = OS-managed HFP/HSP route.** Pairing happens in system settings. A2DP-only devices have no usable mic — explain that, never fake a route or claim universal intercom support.
 - **Offline map must never fall back online.** Don't bulk-download `tile.openstreetmap.org`; missing coverage needs an explicit UI state; attribution is mandatory.
 - **Wi-Fi Direct isn't cross-platform** (iOS has no Wi-Fi Direct API). Same-Wi-Fi + phone hotspot is the supported path.

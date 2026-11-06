@@ -55,7 +55,7 @@ The target user pairs a helmet intercom or headset in the phone's Bluetooth sett
 
 - **Audio-only WebRTC mesh.** Each pair of voice participants has one `RTCPeerConnection` with Opus audio.
 - Signaling (`offer`, `answer`, ICE candidate) travels through the host's TCP room connection. Audio never travels over TCP.
-- **Capacity:** room 12 including host; voice 6 by default, configurable. Document the maximum actually tested; never promise more.
+- **Capacity:** room 12 including host; voice 12 by default, configurable and capped by room capacity, so every joined participant can speak. The mesh has not yet been validated at that size on physical devices; document the maximum actually tested and never promise more.
 - **Negotiation:** for each pair, the participant with the lexicographically smaller ID creates the initial offer and the other answers. Renegotiation uses the WebRTC perfect-negotiation pattern to survive glare. Never have both sides offer at once.
 - **Mute/unmute** disables the local audio track and broadcasts `VOICE_MUTE_STATUS`; the UI shows every participant's mute state.
 - **Voice state** (`VOICE_PARTICIPANT_STATE`) carries voice membership and mute state — never audio data. Per-peer connection quality is local to each device because the host cannot observe the P2P media path.

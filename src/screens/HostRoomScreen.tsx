@@ -179,10 +179,10 @@ export function HostRoomScreen({ app }: HostRoomScreenProps) {
       <Card style={styles.card}>
         <View style={styles.listHeader}>
           <Text style={styles.listTitle}>
-            Peserta ({participants.length}/16)
+            Peserta ({participants.length}/12)
           </Text>
           <Text style={styles.listMeta}>
-            Suara {voiceParticipants.length}/{room?.voiceCapacity || 16}
+            Suara {voiceParticipants.length}/{room?.voiceCapacity || 12}
           </Text>
         </View>
         {participants.map(participant => (
@@ -196,6 +196,7 @@ export function HostRoomScreen({ app }: HostRoomScreenProps) {
             )}
             sharing={room?.locationSharing[participant.id] === true}
             peerState={app.peerStates[participant.id]}
+            localVoiceActive={app.voiceActive}
             onKick={
               participant.id !== room?.selfId && participant.id !== room?.hostId
                 ? () => confirmKick(participant.id, participant.displayName)

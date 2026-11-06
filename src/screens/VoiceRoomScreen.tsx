@@ -91,7 +91,7 @@ export function VoiceRoomScreen({ app }: VoiceRoomScreenProps) {
         title={room.roomName ?? 'Ruang Suara'}
         subtitle={`${room.participants.length} peserta · ${
           voiceParticipants.length
-        }/${room.voiceCapacity || 6} di suara`}
+        }/${room.voiceCapacity || 12} di suara`}
         onBack={app.goBack}
         right={<Badge label={isHost ? 'Host' : 'Peserta'} tone="primary" />}
       />
@@ -185,6 +185,7 @@ export function VoiceRoomScreen({ app }: VoiceRoomScreenProps) {
             )}
             sharing={room.locationSharing[participant.id] === true}
             peerState={app.peerStates[participant.id]}
+            localVoiceActive={app.voiceActive}
             onKick={
               isHost &&
               participant.id !== room.selfId &&
