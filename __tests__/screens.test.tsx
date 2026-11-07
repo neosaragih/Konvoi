@@ -76,6 +76,7 @@ function createFakeApp(overrides: Partial<RoomApp> = {}): RoomApp {
     stopDiscovery: jest.fn(),
     dismissError: jest.fn(),
     dismissNotice: jest.fn(),
+    showError: jest.fn(),
     locationSharingActive: false,
     reconnecting: false,
     startLocationSharing: jest.fn(async () => {}),
@@ -136,6 +137,7 @@ describe('screens render', () => {
         pin: '123456',
         port: 41234,
         advertised: true,
+        hostIp: '192.168.43.1',
       },
     });
     const tree = await render(<HostRoomScreen app={app} />);
@@ -203,12 +205,12 @@ describe('screens render', () => {
     await unmount(tree);
   });
 
-  it('renders the offline-map placeholder and sharing state', async () => {
+  it('renders the offline radar map note and sharing state', async () => {
     const tree = await render(<LiveMapScreen app={createFakeApp()} />);
     const text = textOf(tree);
 
-    expect(text).toContain('Peta offline belum tersedia');
-    expect(text).toContain('OpenStreetMap');
+    expect(text).toContain('Peta radar offline');
+    expect(text).not.toContain('CARTO');
     expect(text).toContain('Terbaru');
     await unmount(tree);
   });

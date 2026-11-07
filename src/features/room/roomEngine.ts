@@ -4,7 +4,6 @@ import {
   DEFAULT_VOICE_CAPACITY,
   JOIN_ATTEMPTS_MAX,
   JOIN_ATTEMPTS_WINDOW_MS,
-  LOCATION_MAX_AGE_MS,
   LOCATION_MIN_INTERVAL_MS,
   LOCATION_UPDATES_MAX_PER_WINDOW,
   PROTOCOL_VERSION,
@@ -567,17 +566,8 @@ export class RoomEngine {
       return [];
     }
 
-    const age = now - location.capturedAt;
-    if (age > LOCATION_MAX_AGE_MS || age < -LOCATION_MAX_AGE_MS) {
-      return [
-        this.error(
-          member.connectionId,
-          'STALE_LOCATION',
-          'Location fix is stale',
-        ),
-      ];
-    }
-
+    // capturedAt is display metadata only: guest clocks can skew with no NTP
+    // on a WAN-less network, so admission never compares it to the host clock.
     member.lastLocationAt = now;
     member.location = location;
 

@@ -68,8 +68,12 @@ export function JoinRoomScreen({ app }: JoinRoomScreenProps) {
           roomId: data.roomId,
         });
       }
-    } catch {
-      app.dismissError();
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : 'Gagal memindai QR code.';
+      app.showError(message);
     } finally {
       setScanningQr(false);
     }
@@ -80,10 +84,14 @@ export function JoinRoomScreen({ app }: JoinRoomScreenProps) {
       setFieldErrors({ displayName: 'Masukkan nama panggilan Anda dulu.' });
       return;
     }
+    if (!/^\d{6}$/.test(pin)) {
+      setFieldErrors({ pin: 'Masukkan PIN 6 angka yang ditampilkan di HP host.' });
+      return;
+    }
     setFieldErrors({});
     app.joinRoom({
       displayName,
-      pin: room.pin || '000000',
+      pin,
       host: room.host,
       port: String(room.port),
       roomId: room.roomId,
@@ -94,9 +102,6 @@ export function JoinRoomScreen({ app }: JoinRoomScreenProps) {
     setSelectedRoom(room);
     setHostAddress(room.host);
     setPort(String(room.port));
-    if (room.pin) {
-      setPin(room.pin);
-    }
     setFieldErrors(current => ({
       ...current,
       host: undefined,
@@ -126,8 +131,8 @@ export function JoinRoomScreen({ app }: JoinRoomScreenProps) {
         nextErrors.port = 'Port harus angka 1-65535.';
       }
     }
-    if (pin.trim().length > 0 && !/^\d{6}$/.test(pin)) {
-      nextErrors.pin = 'PIN harus 6 angka jika diisi.';
+    if (!/^\d{6}$/.test(pin)) {
+      nextErrors.pin = 'PIN ruangan wajib diisi (6 angka).';
     }
 
     setFieldErrors(nextErrors);
@@ -137,7 +142,7 @@ export function JoinRoomScreen({ app }: JoinRoomScreenProps) {
 
     app.joinRoom({
       displayName,
-      pin: pin.trim().length > 0 ? pin : '000000',
+      pin,
       host: hostAddress,
       port,
       ...(selectedRoom?.roomId ? { roomId: selectedRoom.roomId } : {}),
@@ -244,7 +249,7 @@ export function JoinRoomScreen({ app }: JoinRoomScreenProps) {
                     <Text style={styles.roomSub}>
                       {incompatible
                         ? 'Versi berbeda'
-                        : 'Siap gabung tanpa kunci/PIN'}
+                        : 'Pilih, lalu masukkan PIN ruangan'}
                     </Text>
                   </View>
                 </Pressable>
@@ -260,8 +265,26 @@ export function JoinRoomScreen({ app }: JoinRoomScreenProps) {
           })
         )}
 
+        {selectedRoom ? (
+          <TextField
+            label="PIN ruangan"
+            value={pin}
+            onChangeText={value => {
+              setPin(digitsOnly(value, 6));
+              if (fieldErrors.pin) {
+                setFieldErrors(current => ({ ...current, pin: undefined }));
+              }
+            }}
+            placeholder="6 angka dari layar host"
+            keyboardType="number-pad"
+            maxLength={6}
+            error={fieldErrors.pin ?? null}
+          />
+        ) : null}
+
         <Text style={styles.discoveryNote}>
-          Otomatis mendeteksi host tanpa perlu ketik IP atau PIN.
+          Otomatis mendeteksi host di Wi-Fi yang sama. PIN ruangan tetap
+          diminta agar orang lain tidak ikut masuk.
         </Text>
       </Card>
 
@@ -337,7 +360,7 @@ export function JoinRoomScreen({ app }: JoinRoomScreenProps) {
             />
 
             <TextField
-              label="PIN (opsional)"
+              label="PIN ruangan"
               value={pin}
               onChangeText={value => {
                 setPin(digitsOnly(value, 6));
@@ -345,7 +368,7 @@ export function JoinRoomScreen({ app }: JoinRoomScreenProps) {
                   setFieldErrors(current => ({ ...current, pin: undefined }));
                 }
               }}
-              placeholder="6 angka (jika host memasang PIN)"
+              placeholder="6 angka dari layar host"
               keyboardType="number-pad"
               maxLength={6}
               error={fieldErrors.pin ?? null}

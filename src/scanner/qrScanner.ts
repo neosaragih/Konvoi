@@ -1,4 +1,8 @@
-import { NativeModules } from 'react-native';
+import {
+  NativeModules,
+  PermissionsAndroid,
+  Platform,
+} from 'react-native';
 
 const { KonvoiLocationModule } = NativeModules;
 
@@ -72,6 +76,38 @@ export async function scanQrCode(): Promise<ScannedJoinData | null> {
   if (!KonvoiLocationModule?.scanQrCode) {
     throw new Error('Scanner kamera belum didukung di platform ini.');
   }
+
+  // The native scanner needs the camera; ask before launching it so the
+  // user gets one clear flow instead of a silent failure.
+  if (Platform.OS === 'android') {
+    try {
+      const alreadyGranted = await PermissionsAndroid.check(
+        PermissionsAndroid.PERMISSIONS.CAMERA,
+      );
+      if (!alreadyGranted) {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.CAMERA,
+          {
+            title: 'Izin Kamera',
+            message: 'Konvoi membutuhkan kamera untuk memindai QR code ruangan.',
+            buttonPositive: 'Izinkan',
+            buttonNegative: 'Batal',
+          },
+        );
+        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+          throw new Error(
+            'Izin kamera ditolak. Masukkan IP, port, dan PIN secara manual.',
+          );
+        }
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        throw err;
+      }
+      throw new Error('Gagal meminta izin kamera.');
+    }
+  }
+
   try {
     const raw: string = await KonvoiLocationModule.scanQrCode();
     if (!raw) {

@@ -113,8 +113,8 @@ export function VoiceRoomScreen({ app }: VoiceRoomScreenProps) {
         </View>
         <Text style={styles.body}>
           {app.voiceActive
-            ? 'Mikrofon menyala. Suara dikirim langsung antar-HP lewat WebRTC; host hanya meneruskan sinyal koneksi. Tidak ada STUN/TURN, jadi semua HP harus bisa saling menjangkau di Wi-Fi ini.'
-            : 'Mikrofon hanya menyala setelah Anda menekan Mulai Suara. Audio berjalan peer-to-peer tanpa server internet, dan berhenti otomatis saat aplikasi masuk latar belakang.'}
+            ? 'Mikrofon menyala. Suara dikirim langsung antar-HP lewat WebRTC; host hanya meneruskan sinyal koneksi. Tidak ada STUN/TURN, jadi semua HP harus bisa saling menjangkau di Wi-Fi ini. Suara tetap berjalan di latar belakang lewat notifikasi Konvoi selama ruangan aktif.'
+            : 'Mikrofon hanya menyala setelah Anda menekan Mulai Suara. Audio berjalan peer-to-peer tanpa server internet, dan tetap aktif di latar belakang melalui notifikasi Konvoi selama ruangan berjalan.'}
         </Text>
         {app.voiceActive ? (
           <>
@@ -211,8 +211,8 @@ export function VoiceRoomScreen({ app }: VoiceRoomScreenProps) {
       />
 
       <Text style={styles.footer}>
-        Tidak ada chat di Konvoi. Suara dan lokasi hanya berjalan selama
-        aplikasi terbuka di depan.
+        Tidak ada chat di Konvoi. Notifikasi Konvoi menandai suara dan lokasi
+        yang tetap aktif selama ruangan berjalan.
       </Text>
     </Screen>
   );

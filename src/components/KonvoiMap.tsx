@@ -76,9 +76,10 @@ export function KonvoiMap({ markers, center, style }: KonvoiMapProps) {
   // Graceful fallback for tests, iOS, or before WebView mount
   return (
     <View style={[styles.container, styles.fallbackContainer, style]}>
-      <Text style={styles.fallbackTitle}>Peta Konvoi (OpenStreetMap)</Text>
+      <Text style={styles.fallbackTitle}>Peta Radar Konvoi (Offline)</Text>
       <Text style={styles.fallbackSubtitle}>
-        Tampilan rute dan posisi GPS langsung antar-peserta konvoi
+        Posisi relatif antar-peserta dari GPS, tanpa tile peta dan tanpa
+        internet
       </Text>
       <View style={styles.radarCard}>
         {markers.length > 0 ? (
@@ -109,7 +110,7 @@ export function KonvoiMap({ markers, center, style }: KonvoiMapProps) {
         )}
       </View>
       <Text style={styles.attribution}>
-        © OpenStreetMap contributors © CARTO (Peta Sumber Terbuka)
+        Peta radar offline · dihitung dari koordinat GPS ruangan
       </Text>
     </View>
   );

@@ -25,7 +25,8 @@ export function HostRoomScreen({ app }: HostRoomScreenProps) {
   const qrData = useMemo(() => {
     if (!host) return '';
     return buildJoinQr({
-      host: '192.168.43.1', // Standard default host IP for hotspot
+      // Detected LAN address when available; hotspot default as fallback.
+      host: host.hostIp ?? '192.168.43.1',
       port: host.port,
       pin: host.pin,
       roomId: host.roomId,
@@ -122,6 +123,13 @@ export function HostRoomScreen({ app }: HostRoomScreenProps) {
         </Text>
         {showQr ? (
           <View style={styles.qrContainer}>
+            {host.hostIp ? null : (
+              <Text style={styles.qrWarn}>
+                IP host belum terdeteksi. QR memakai alamat hotspot bawaan
+                (192.168.43.1); jika host memakai Wi-Fi biasa, tamu sebaiknya
+                memakai pencarian ruangan di layar gabung.
+              </Text>
+            )}
             <QrCodeView value={qrData} size={180} />
             <Text style={styles.qrHint}>
               Arahkan kamera HP tamu ke QR di atas
@@ -321,6 +329,12 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 12,
     marginTop: spacing.sm,
+  },
+  qrWarn: {
+    color: colors.muted,
+    fontSize: 11,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
   },
   listHeader: {
     flexDirection: 'row',

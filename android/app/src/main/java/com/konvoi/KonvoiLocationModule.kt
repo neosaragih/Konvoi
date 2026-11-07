@@ -20,6 +20,8 @@ import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import java.net.Inet4Address
+import java.net.NetworkInterface
 
 class KonvoiLocationModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext), LocationListener {
@@ -186,6 +188,47 @@ class KonvoiLocationModule(private val reactContext: ReactApplicationContext) :
             promise.resolve(true)
         } catch (e: Exception) {
             promise.reject("SERVICE_ERROR", e.message ?: "Gagal menghentikan background service.")
+        }
+    }
+
+    @ReactMethod
+    fun getLocalIpAddress(promise: Promise) {
+        mainHandler.post {
+            try {
+                var fallback: String? = null
+                var preferred: String? = null
+                val interfaces = NetworkInterface.getNetworkInterfaces()
+                while (interfaces.hasMoreElements()) {
+                    val ni = interfaces.nextElement()
+                    if (!ni.isUp || ni.isLoopback) continue
+                    val name = ni.name.lowercase()
+                    val addresses = ni.inetAddresses
+                    while (addresses.hasMoreElements()) {
+                        val addr = addresses.nextElement()
+                        if (addr is Inet4Address && !addr.isLoopbackAddress) {
+                            if (name.startsWith("wlan") ||
+                                name.startsWith("ap") ||
+                                name.startsWith("eth")
+                            ) {
+                                if (preferred == null) preferred = addr.hostAddress
+                            } else if (fallback == null) {
+                                fallback = addr.hostAddress
+                            }
+                        }
+                    }
+                }
+                val ip = preferred ?: fallback
+                if (ip != null) {
+                    promise.resolve(ip)
+                } else {
+                    promise.reject(
+                        "NO_LOCAL_IP",
+                        "Alamat IP lokal tidak ditemukan. Aktifkan Wi-Fi atau hotspot."
+                    )
+                }
+            } catch (e: Exception) {
+                promise.reject("IP_ERROR", e.message ?: "Gagal membaca alamat IP lokal.")
+            }
         }
     }
 

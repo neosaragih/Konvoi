@@ -380,16 +380,18 @@ describe('RoomEngine location', () => {
     ).toBeDefined();
   });
 
-  it('rejects a stale GPS fix', () => {
+  it('accepts a GPS fix whose capturedAt comes from a skewed device clock', () => {
     const { engine, now } = createHarness();
     engine.join('c1', joinRequest());
     engine.handle('c1', sharing(true));
 
+    // No NTP on a WAN-less network: a guest clock can lag the host clock.
     const events = engine.handle('c1', locationUpdate(now() - 120_000));
 
-    expect(messageOfType(events, 'c1', 'ERROR')).toMatchObject({
-      code: 'STALE_LOCATION',
-    });
+    expect(
+      messageOfType(events, HOST_CONNECTION_ID, 'LOCATION_UPDATE'),
+    ).toMatchObject({ participantId: 'p1' });
+    expect(messageOfType(events, 'c1', 'ERROR')).toBeUndefined();
   });
 
   it('clears the location immediately when sharing stops', () => {

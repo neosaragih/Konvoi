@@ -141,8 +141,8 @@ export function LiveMapScreen({ app }: LiveMapScreenProps) {
         <KonvoiMap markers={markers} />
         <View style={styles.attribution}>
           <Text style={styles.mapTitle}>
-            Peta offline belum tersedia paket unduhan khusus, peta live memakai
-            OpenStreetMap & CARTO bergaya Google Maps.
+            Peta radar offline: posisi relatif antar-peserta dari GPS, tanpa
+            unduhan peta dan tanpa internet.
           </Text>
         </View>
       </Card>

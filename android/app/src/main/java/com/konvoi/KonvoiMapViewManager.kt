@@ -9,6 +9,14 @@ import com.facebook.react.uimanager.SimpleViewManager
 import com.facebook.react.uimanager.ThemedReactContext
 import com.facebook.react.uimanager.annotations.ReactProp
 
+/**
+ * Offline relative-position map.
+ *
+ * Renders participants on a distance-scaled radar centered on the self marker
+ * (or the group centroid). The HTML/JS is fully inline: no tile servers, no
+ * CDN, no network access of any kind — Konvoi must keep working with Wi-Fi
+ * isolation or no WAN at all.
+ */
 class KonvoiMapViewManager : SimpleViewManager<WebView>() {
 
     override fun getName(): String = "KonvoiMapView"
@@ -16,17 +24,15 @@ class KonvoiMapViewManager : SimpleViewManager<WebView>() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun createViewInstance(context: ThemedReactContext): WebView {
         return WebView(context).apply {
-            setBackgroundColor(Color.parseColor("#f8fafc"))
+            setBackgroundColor(Color.parseColor("#0f172a"))
             settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            settings.loadWithOverviewMode = true
-            settings.useWideViewPort = true
-            settings.builtInZoomControls = false
-            settings.displayZoomControls = false
+            settings.domStorageEnabled = false
+            settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
 
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                    return false
+                    // Block all navigation: the radar is inline-only.
+                    return true
                 }
             }
 
@@ -43,7 +49,7 @@ class KonvoiMapViewManager : SimpleViewManager<WebView>() {
     @ReactProp(name = "markersJson")
     fun setMarkersJson(view: WebView, markersJson: String?) {
         if (markersJson == null) return
-        val js = "if (window.updateMarkers) { window.updateMarkers($markersJson); }"
+        val js = "if (window.updateMarkers) { window.updateMarkers($markersJson); } else { window._pendingMarkers = $markersJson; }"
         view.post {
             view.evaluateJavascript(js, null)
         }
@@ -52,7 +58,7 @@ class KonvoiMapViewManager : SimpleViewManager<WebView>() {
     @ReactProp(name = "centerJson")
     fun setCenterJson(view: WebView, centerJson: String?) {
         if (centerJson == null) return
-        val js = "if (window.setCenter) { window.setCenter($centerJson); }"
+        val js = "if (window.setCenter) { window.setCenter($centerJson); } else { window._pendingCenter = $centerJson; }"
         view.post {
             view.evaluateJavascript(js, null)
         }
@@ -65,311 +71,232 @@ class KonvoiMapViewManager : SimpleViewManager<WebView>() {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body, #map {
+    html, body, #radar {
       width: 100%; height: 100%;
-      background: #f1f5f9; overflow: hidden;
+      background: #0f172a; overflow: hidden;
       font-family: -apple-system, BlinkMacSystemFont, 'Roboto', 'Segoe UI', sans-serif;
-    }
-    .leaflet-container { background: #e2e8f0 !important; font-family: inherit; }
-
-    /* Google Maps style pulsating user dot */
-    .user-location-marker {
       position: relative;
-      display: flex;
-      align-items: center;
-      justify-content: center;
     }
-    .user-dot-pulse {
-      position: absolute;
-      width: 38px;
-      height: 38px;
-      background: rgba(26, 115, 232, 0.25);
-      border-radius: 50%;
-      animation: gmaps-pulse 2s infinite ease-out;
+    .ring {
+      position: absolute; border-radius: 50%;
+      border: 1px dashed rgba(148, 163, 184, 0.35);
+      transform: translate(-50%, -50%);
+      pointer-events: none;
     }
-    .user-dot-core {
-      position: relative;
-      width: 18px;
-      height: 18px;
-      background: #1a73e8;
-      border: 3px solid #ffffff;
-      border-radius: 50%;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
-      z-index: 2;
+    .ring-label {
+      position: absolute; transform: translate(-50%, -50%);
+      color: rgba(148, 163, 184, 0.85);
+      font-size: 10px; background: rgba(15, 23, 42, 0.8);
+      padding: 1px 6px; border-radius: 8px;
+      pointer-events: none; white-space: nowrap;
     }
-    .user-heading-beam {
-      position: absolute;
-      top: -16px;
-      width: 0;
-      height: 0;
-      border-left: 8px solid transparent;
-      border-right: 8px solid transparent;
-      border-bottom: 16px solid rgba(26, 115, 232, 0.45);
-      z-index: 1;
+    .crosshair {
+      position: absolute; transform: translate(-50%, -50%);
+      color: rgba(148, 163, 184, 0.4); font-size: 11px;
+      pointer-events: none;
     }
-    @keyframes gmaps-pulse {
-      0% { transform: scale(0.5); opacity: 1; }
-      100% { transform: scale(1.6); opacity: 0; }
+    .title {
+      position: absolute; top: 8px; left: 10px; z-index: 5;
+      color: #38bdf8; font-size: 11px; font-weight: 700; letter-spacing: 1px;
     }
-
-    /* Google Maps style rider chip marker */
-    .rider-marker {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      transform: translateY(-8px);
+    .scale-note {
+      position: absolute; top: 24px; left: 10px; z-index: 5;
+      color: #64748b; font-size: 10px;
+    }
+    .empty {
+      position: absolute; inset: 0; display: flex;
+      align-items: center; justify-content: center;
+      color: #64748b; font-size: 13px; text-align: center;
+      padding: 24px;
+    }
+    .user-marker { position: absolute; transform: translate(-50%, -50%); z-index: 4; }
+    .user-pulse {
+      position: absolute; left: 50%; top: 50%;
+      width: 40px; height: 40px; transform: translate(-50%, -50%);
+      background: rgba(26, 115, 232, 0.25); border-radius: 50%;
+      animation: pulse 2s infinite ease-out;
+    }
+    .user-core {
+      position: relative; width: 16px; height: 16px;
+      background: #1a73e8; border: 3px solid #ffffff; border-radius: 50%;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    }
+    @keyframes pulse {
+      0% { transform: translate(-50%, -50%) scale(0.5); opacity: 1; }
+      100% { transform: translate(-50%, -50%) scale(1.6); opacity: 0; }
+    }
+    .rider { position: absolute; transform: translate(-50%, -50%); z-index: 3; }
+    .rider-dot {
+      width: 12px; height: 12px; margin: 0 auto;
+      background: #0284c7; border: 2px solid #bae6fd; border-radius: 50%;
     }
     .rider-chip {
-      background: #ffffff;
-      color: #1e293b;
-      padding: 4px 10px;
-      border-radius: 16px;
-      font-size: 11px;
-      font-weight: 700;
-      box-shadow: 0 3px 10px rgba(0,0,0,0.22);
-      border: 1.5px solid #0284c7;
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      white-space: nowrap;
+      margin-top: 4px; background: #ffffff; color: #1e293b;
+      padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 700;
+      border: 1.5px solid #0284c7; white-space: nowrap;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
     }
-    .rider-chip.self {
-      border-color: #1a73e8;
-      color: #1a73e8;
-    }
-    .rider-chip-pin {
-      width: 0;
-      height: 0;
-      border-left: 5px solid transparent;
-      border-right: 5px solid transparent;
-      border-top: 6px solid #0284c7;
-      margin-top: -1px;
-    }
-    .rider-chip.self + .rider-chip-pin {
-      border-top-color: #1a73e8;
-    }
-
-    /* Google Maps style Floating Controls */
-    .gmaps-controls {
-      position: absolute;
-      right: 14px;
-      bottom: 24px;
-      z-index: 1000;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .gmaps-fab {
-      width: 44px;
-      height: 44px;
-      background: #ffffff;
-      border-radius: 50%;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-      border: none;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #3b82f6;
-      font-size: 20px;
-      cursor: pointer;
-      outline: none;
-      transition: background 0.2s, transform 0.1s;
-    }
-    .gmaps-fab:active {
-      transform: scale(0.92);
-      background: #f1f5f9;
-    }
-
-    .leaflet-control-attribution {
-      background: rgba(255, 255, 255, 0.8) !important;
-      color: #64748b !important;
-      font-size: 9px !important;
-      padding: 2px 6px !important;
-      border-radius: 4px !important;
+    .rider-meta {
+      margin-top: 1px; text-align: center;
+      color: #bae6fd; font-size: 9px; white-space: nowrap;
     }
   </style>
 </head>
 <body>
-  <div id="map"></div>
-  <div class="gmaps-controls">
-    <button class="gmaps-fab" id="recenterBtn" title="Lokasi Saya" onclick="recenterSelf()" aria-label="Lokasi Saya">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="7"/>
-        <line x1="12" y1="1" x2="12" y2="4"/>
-        <line x1="12" y1="20" x2="12" y2="23"/>
-        <line x1="1" y1="12" x2="4" y2="12"/>
-        <line x1="20" y1="12" x2="23" y2="12"/>
-      </svg>
-    </button>
-    <button class="gmaps-fab" id="fitAllBtn" title="Semua Pengendara" onclick="fitAllRiders()" aria-label="Semua Pengendara">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-        <circle cx="9" cy="7" r="4"/>
-        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-      </svg>
-    </button>
+  <div id="radar">
+    <div class="title">PETA RADAR OFFLINE</div>
+    <div class="scale-note" id="scaleNote"></div>
+    <div class="empty" id="empty">Belum ada koordinat GPS. Tekan "Mulai Berbagi Lokasi" untuk memancarkan posisi Anda.</div>
   </div>
-
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    var map = null;
-    var markersMap = {};
-    var circlesMap = {};
-    var isInitialized = false;
+    var radar = document.getElementById('radar');
+    var emptyNote = document.getElementById('empty');
+    var scaleNote = document.getElementById('scaleNote');
     var latestMarkers = [];
-    var selfCoordinates = null;
+    var M_PER_DEG_LAT = 111320.0;
 
-    function init() {
-      if (typeof L === 'undefined') {
-        setTimeout(init, 200);
-        return;
+    function metersPerDegLon(lat) {
+      var c = Math.cos(lat * Math.PI / 180.0);
+      return M_PER_DEG_LAT * Math.max(0.2, Math.min(1.0, c));
+    }
+
+    function niceRadius(m) {
+      var steps = [100, 200, 300, 500, 800, 1000, 1500, 2000, 3000, 5000, 10000, 20000, 50000];
+      for (var i = 0; i < steps.length; i++) {
+        if (m <= steps[i]) return steps[i];
       }
+      return Math.ceil(m / 50000) * 50000;
+    }
 
-      // Initialize map with Google Maps style default center
-      map = L.map('map', {
-        zoomControl: false,
-        attributionControl: true
-      }).setView([-6.2088, 106.8456], 15);
-
-      // CartoDB Voyager tiles (OpenStreetMap data with clean, crisp Google Maps appearance)
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        maxZoom: 19,
-        subdomains: 'abcd',
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>'
-      }).addTo(map);
-
-      isInitialized = true;
-      if (window._pendingMarkers) {
-        window.updateMarkers(window._pendingMarkers);
-        window._pendingMarkers = null;
-      }
-      if (window._pendingCenter) {
-        window.setCenter(window._pendingCenter);
-        window._pendingCenter = null;
-      }
+    function formatMeters(m) {
+      if (m < 1000) return Math.round(m) + ' m';
+      return (m / 1000).toFixed(1) + ' km';
     }
 
     window.updateMarkers = function(list) {
-      if (!isInitialized || !map) {
-        window._pendingMarkers = list;
-        return;
-      }
       if (!Array.isArray(list)) return;
       latestMarkers = list;
-
-      var currentIds = {};
-      var bounds = [];
-
-      for (var i = 0; i < list.length; i++) {
-        var item = list[i];
-        if (!item || typeof item.lat !== 'number' || typeof item.lon !== 'number') continue;
-        currentIds[item.id] = true;
-        var lat = item.lat;
-        var lon = item.lon;
-        bounds.push([lat, lon]);
-
-        var isSelf = !!item.isSelf;
-        if (isSelf) {
-          selfCoordinates = [lat, lon];
-        }
-        var name = item.name || (isSelf ? 'Anda' : 'Pengendara');
-        var speedText = typeof item.speed === 'number' && item.speed > 0
-          ? ' ' + Math.round(item.speed * 3.6) + ' km/j'
-          : '';
-
-        var html = '';
-        if (isSelf) {
-          html = '<div class="user-location-marker">' +
-                   '<div class="user-dot-pulse"></div>' +
-                   '<div class="user-dot-core"></div>' +
-                 '</div>';
-        } else {
-          html = '<div class="rider-marker">' +
-                   '<div class="rider-chip">' +
-                     '<span>' + name + speedText + '</span>' +
-                   '</div>' +
-                   '<div class="rider-chip-pin"></div>' +
-                 '</div>';
-        }
-
-        var icon = L.divIcon({
-          html: html,
-          className: '',
-          iconSize: isSelf ? [40, 40] : [100, 40],
-          iconAnchor: isSelf ? [20, 20] : [50, 36]
-        });
-
-        if (markersMap[item.id]) {
-          markersMap[item.id].setLatLng([lat, lon]);
-          markersMap[item.id].setIcon(icon);
-          if (circlesMap[item.id]) {
-            circlesMap[item.id].setLatLng([lat, lon]);
-            circlesMap[item.id].setRadius(item.accuracy || 12);
-          }
-        } else {
-          var marker = L.marker([lat, lon], { icon: icon }).addTo(map);
-          var circle = L.circle([lat, lon], {
-            radius: item.accuracy || 12,
-            color: isSelf ? '#1a73e8' : '#0284c7',
-            fillColor: isSelf ? '#1a73e8' : '#0284c7',
-            fillOpacity: 0.12,
-            weight: 1
-          }).addTo(map);
-
-          markersMap[item.id] = marker;
-          circlesMap[item.id] = circle;
-        }
-      }
-
-      for (var id in markersMap) {
-        if (!currentIds[id]) {
-          map.removeLayer(markersMap[id]);
-          map.removeLayer(circlesMap[id]);
-          delete markersMap[id];
-          delete circlesMap[id];
-        }
-      }
-
-      if (bounds.length > 0 && !window._hasFitted) {
-        map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
-        window._hasFitted = true;
-      }
+      render();
     };
 
-    function recenterSelf() {
-      if (!map || !selfCoordinates) return;
-      map.flyTo(selfCoordinates, 16, { animate: true, duration: 1.2 });
-    }
+    window.setCenter = function() {
+      // Centering is derived from markers on an offline radar; kept for the
+      // bridge contract so the native side can call it safely.
+    };
 
-    function fitAllRiders() {
-      if (!map || latestMarkers.length === 0) return;
-      var bounds = [];
+    function render() {
+      radar.innerHTML = '';
+      var title = document.createElement('div');
+      title.className = 'title'; title.textContent = 'PETA RADAR OFFLINE';
+      radar.appendChild(title);
+      scaleNote = document.createElement('div');
+      scaleNote.className = 'scale-note';
+      radar.appendChild(scaleNote);
+
+      var valid = [];
       for (var i = 0; i < latestMarkers.length; i++) {
         var m = latestMarkers[i];
-        if (m && typeof m.lat === 'number' && typeof m.lon === 'number') {
-          bounds.push([m.lat, m.lon]);
-        }
+        if (m && typeof m.lat === 'number' && typeof m.lon === 'number') valid.push(m);
       }
-      if (bounds.length > 0) {
-        map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16, animate: true });
+      if (valid.length === 0) {
+        var note = document.createElement('div');
+        note.className = 'empty';
+        note.textContent = 'Belum ada koordinat GPS. Tekan "Mulai Berbagi Lokasi" untuk memancarkan posisi Anda.';
+        radar.appendChild(note);
+        return;
+      }
+      emptyNote = null;
+
+      var self = null;
+      var sumLat = 0, sumLon = 0;
+      for (var j = 0; j < valid.length; j++) {
+        sumLat += valid[j].lat; sumLon += valid[j].lon;
+        if (valid[j].isSelf) self = valid[j];
+      }
+      var centerLat = self ? self.lat : sumLat / valid.length;
+      var centerLon = self ? self.lon : sumLon / valid.length;
+      var mPerDegLon = metersPerDegLon(centerLat);
+
+      var maxDist = 0;
+      for (var k = 0; k < valid.length; k++) {
+        var d = Math.abs(valid[k].lat - centerLat) * M_PER_DEG_LAT +
+                Math.abs(valid[k].lon - centerLon) * mPerDegLon;
+        if (d > maxDist) maxDist = d;
+      }
+      var radiusM = niceRadius(maxDist * 1.35 + 40);
+      var w = radar.clientWidth || 320;
+      var h = radar.clientHeight || 320;
+      var px = Math.min(w, h) / 2 - 26;
+      var scale = px / radiusM;
+
+      scaleNote.textContent = 'Cincin: ' + formatMeters(radiusM) + ' · skala relatif tanpa peta';
+
+      for (var r = 1; r <= 2; r++) {
+        var ring = document.createElement('div');
+        var rpx = (radiusM * r / 2) * scale;
+        ring.className = 'ring';
+        ring.style.width = (rpx * 2) + 'px';
+        ring.style.height = (rpx * 2) + 'px';
+        ring.style.left = '50%';
+        ring.style.top = '50%';
+        radar.appendChild(ring);
+        var label = document.createElement('div');
+        label.className = 'ring-label';
+        label.textContent = formatMeters(radiusM * r / 2);
+        label.style.left = '50%';
+        label.style.top = (h / 2 - rpx) + 'px';
+        radar.appendChild(label);
+      }
+      var cross = document.createElement('div');
+      cross.className = 'crosshair';
+      cross.textContent = '+';
+      cross.style.left = '50%';
+      cross.style.top = '50%';
+      radar.appendChild(cross);
+
+      for (var n = 0; n < valid.length; n++) {
+        var item = valid[n];
+        var dx = (item.lon - centerLon) * mPerDegLon * scale;
+        var dy = (item.lat - centerLat) * M_PER_DEG_LAT * scale;
+        var x = w / 2 + dx;
+        var y = h / 2 - dy;
+
+        if (item.isSelf) {
+          var um = document.createElement('div');
+          um.className = 'user-marker';
+          um.style.left = x + 'px';
+          um.style.top = y + 'px';
+          um.innerHTML = '<div class="user-pulse"></div><div class="user-core"></div>';
+          radar.appendChild(um);
+          continue;
+        }
+
+        var dist = Math.abs(item.lat - centerLat) * M_PER_DEG_LAT +
+                   Math.abs(item.lon - centerLon) * mPerDegLon;
+        var el = document.createElement('div');
+        el.className = 'rider';
+        el.style.left = x + 'px';
+        el.style.top = y + 'px';
+        var meta = formatMeters(dist) +
+          (typeof item.speed === 'number' && item.speed > 0
+            ? ' · ' + Math.round(item.speed * 3.6) + ' km/j' : '');
+        el.innerHTML = '<div class="rider-dot"></div>' +
+          '<div class="rider-chip"></div>' +
+          '<div class="rider-meta"></div>';
+        el.children[1].textContent = item.name || 'Pengendara';
+        el.children[2].textContent = meta;
+        radar.appendChild(el);
       }
     }
 
-    window.setCenter = function(data) {
-      if (!isInitialized || !map) {
-        window._pendingCenter = data;
-        return;
-      }
-      if (data && typeof data.lat === 'number' && typeof data.lon === 'number') {
-        map.flyTo([data.lat, data.lon], data.zoom || 16, { animate: true });
-      }
-    };
-
-    window.onload = init;
+    window.addEventListener('resize', render);
+    if (window._pendingMarkers) {
+      var pending = window._pendingMarkers;
+      window._pendingMarkers = null;
+      window.updateMarkers(pending);
+    }
   </script>
 </body>
 </html>

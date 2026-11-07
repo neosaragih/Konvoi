@@ -33,6 +33,8 @@ export interface HostRoomInfo {
   port: number;
   /** True once mDNS advertising succeeded; manual IP/port still works. */
   advertised: boolean;
+  /** LAN address detected on the host phone; null when unavailable. */
+  hostIp: string | null;
 }
 
 export interface GuestRoomInfo {
@@ -82,6 +84,7 @@ export interface RoomApp {
   stopDiscovery: () => void;
   dismissError: () => void;
   dismissNotice: () => void;
+  showError: (message: string) => void;
   locationSharingActive: boolean;
   reconnecting: boolean;
   startLocationSharing: () => Promise<void>;
@@ -89,6 +92,9 @@ export interface RoomApp {
 }
 
 const JOIN_TIMEOUT_MS = 12_000;
+const RECONNECT_BASE_DELAY_MS = 3_500;
+const RECONNECT_MAX_DELAY_MS = 30_000;
+const RECONNECT_MAX_ATTEMPTS = 12;
 
 function trimmedLength(value: string): number {
   return value.trim().length;
@@ -171,6 +177,7 @@ export function useRoomApp(): RoomApp {
   const triggerAutoReconnectRef = useRef<() => void>(() => {});
   const joinRoomRef = useRef<(input: JoinRoomInput) => Promise<void>>(async () => {});
   const reconnectingRef = useRef(false);
+  const reconnectAttemptsRef = useRef(0);
   const lastJoinedRef = useRef<{
     displayName: string;
     pin: string;
@@ -376,6 +383,7 @@ export function useRoomApp(): RoomApp {
           clearJoinTimer();
           clearReconnectTimer();
           reconnectingRef.current = false;
+          reconnectAttemptsRef.current = 0;
           setReconnecting(false);
           setBusy(false);
           setScreen('room');
@@ -396,6 +404,7 @@ export function useRoomApp(): RoomApp {
           setBusy(false);
           setError(joinRejectionText(state));
           reconnectingRef.current = false;
+          reconnectAttemptsRef.current = 0;
           setReconnecting(false);
           lastJoinedRef.current = null;
           disposeGuest();
@@ -409,6 +418,7 @@ export function useRoomApp(): RoomApp {
           setBusy(false);
           setError('Anda dikeluarkan dari ruangan oleh host.');
           reconnectingRef.current = false;
+          reconnectAttemptsRef.current = 0;
           setReconnecting(false);
           lastJoinedRef.current = null;
           disposeGuest();
@@ -423,6 +433,7 @@ export function useRoomApp(): RoomApp {
           setBusy(false);
           setError('Host menutup ruangan.');
           reconnectingRef.current = false;
+          reconnectAttemptsRef.current = 0;
           setReconnecting(false);
           lastJoinedRef.current = null;
           disposeGuest();
@@ -777,11 +788,27 @@ export function useRoomApp(): RoomApp {
             roomId,
             roomName: config.roomName,
             port,
-            pin,
           });
           advertised = true;
         } catch {
           // Manual IP/port/PIN remains available.
+        }
+
+        // Detect the phone's LAN address so the QR code can point at the real
+        // host instead of assuming a hotspot default.
+        let hostIp: string | null = null;
+        const locationModule = NativeModules.KonvoiLocationModule as
+          | { getLocalIpAddress?: () => Promise<string> }
+          | undefined;
+        if (locationModule?.getLocalIpAddress) {
+          try {
+            const detected = await locationModule.getLocalIpAddress();
+            if (typeof detected === 'string' && detected.length > 0) {
+              hostIp = detected;
+            }
+          } catch {
+            hostIp = null;
+          }
         }
 
         setHost({
@@ -790,6 +817,7 @@ export function useRoomApp(): RoomApp {
           pin,
           port,
           advertised,
+          hostIp,
         });
         setGuest(null);
         const initialState = session.room.getState();
@@ -922,6 +950,7 @@ export function useRoomApp(): RoomApp {
     clearJoinTimer();
     clearReconnectTimer();
     reconnectingRef.current = false;
+    reconnectAttemptsRef.current = 0;
     setReconnecting(false);
     lastJoinedRef.current = null;
     const wasHost = hostSessionRef.current !== null;
@@ -965,9 +994,6 @@ export function useRoomApp(): RoomApp {
             if (match) {
               target.host = match.host;
               target.port = String(match.port);
-              if (match.pin) {
-                target.pin = match.pin;
-              }
               joinRoomRef.current({
                 displayName: target.displayName,
                 pin: target.pin,
@@ -996,6 +1022,19 @@ export function useRoomApp(): RoomApp {
 
   const triggerAutoReconnect = useCallback(() => {
     clearReconnectTimer();
+    const attempts = reconnectAttemptsRef.current + 1;
+    reconnectAttemptsRef.current = attempts;
+
+    if (attempts > RECONNECT_MAX_ATTEMPTS) {
+      reconnectingRef.current = false;
+      setReconnecting(false);
+      lastJoinedRef.current = null;
+      setError(
+        'Tidak berhasil menyambung ulang otomatis. Periksa Wi-Fi/hotspot, lalu gabung lagi secara manual.',
+      );
+      return;
+    }
+
     reconnectTimerRef.current = setTimeout(async () => {
       if (!mountedRef.current || !lastJoinedRef.current || !reconnectingRef.current) {
         return;
@@ -1015,7 +1054,7 @@ export function useRoomApp(): RoomApp {
           triggerAutoReconnect();
         }
       }
-    }, 3500);
+    }, Math.min(RECONNECT_BASE_DELAY_MS * attempts, RECONNECT_MAX_DELAY_MS));
   }, [clearReconnectTimer, startDiscovery]);
 
     const startLocationSharing = useCallback(async () => {
@@ -1068,6 +1107,7 @@ export function useRoomApp(): RoomApp {
 
   const dismissError = useCallback(() => setError(null), []);
   const dismissNotice = useCallback(() => setNotice(null), []);
+  const showError = useCallback((message: string) => setError(message), []);
 
   // Keep the late-bound callbacks fresh without making the reconnect/state
   // callbacks depend on them (those refs break the React dependency cycle).
@@ -1106,6 +1146,7 @@ export function useRoomApp(): RoomApp {
     stopDiscovery,
     dismissError,
     dismissNotice,
+    showError,
     locationSharingActive,
     reconnecting,
     startLocationSharing,
