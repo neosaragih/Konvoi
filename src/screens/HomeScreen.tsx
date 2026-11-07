@@ -70,6 +70,27 @@ export function HomeScreen({ app }: HomeScreenProps) {
         </Text>
       </Card>
 
+      {app.room?.status === 'joined' ? (
+        <Card style={styles.card}>
+          <Badge label="Masih Terhubung" tone="success" />
+          <Text style={styles.cardBody}>
+            Anda masih tergabung di ruangan {app.room.roomName ?? ''}. Suara dan
+            lokasi tetap aktif selama ruangan berjalan.
+          </Text>
+          <Button
+            label="Kembali ke Ruangan"
+            onPress={() => app.navigate('room')}
+            style={styles.secondButton}
+          />
+          <Button
+            label="Keluar Ruangan"
+            variant="secondary"
+            onPress={() => app.leaveRoom()}
+            style={styles.secondButton}
+          />
+        </Card>
+      ) : null}
+
       <Text style={styles.footer}>
         Konvoi 0.1.0 · Android & iOS · Tanpa chat
       </Text>

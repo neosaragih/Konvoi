@@ -1083,7 +1083,7 @@ export function useRoomApp(): RoomApp {
       if (lastJoinedRef.current) {
         lastJoinedRef.current.locationWasActive = false;
       }
-      setError('Izin GPS ditolak atau GPS tidak aktif. Aktifkan GPS untuk berbagi lokasi.');
+      setError('Izin GPS ditolak, GPS tidak aktif, atau berbagi lokasi belum didukung di perangkat ini.');
     }
   }, []);
 

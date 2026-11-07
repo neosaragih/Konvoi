@@ -13,11 +13,12 @@ Indonesian UI. Android and iOS.
 | ---------------------------------------------------------- | --------------------------------------------------------- |
 | Protocol (NDJSON v1), validators, host room engine         | Implemented, unit-tested                                  |
 | TCP host server + guest client (`react-native-tcp-socket`) | Implemented, **not device-tested**                        |
-| mDNS discovery + advertising (`react-native-zeroconf`)     | Implemented, **not device-tested**                        |
+| mDNS discovery + advertising (`react-native-zeroconf`)     | Implemented, **not device-tested**; PIN never advertised  |
 | App screens, navigation, room lifecycle                    | Implemented                                               |
 | WebRTC audio mesh (`react-native-webrtc`)                  | Implemented, **not device-tested**; mic is opt-in         |
-| GPS + live location                                        | **Not implemented** — protocol and host relay are ready   |
-| Offline MapLibre map pack                                  | **Not implemented** — no online fallback                  |
+| GPS + live location                                        | Implemented on Android (native module); **iOS pending**   |
+| Offline radar map                                          | Implemented (inline, no tiles); MapLibre/MBTiles pack planned |
+| QR join (generate + scan)                                  | Real QR encoder + ML Kit scan (needs Play Services); **not device-tested** |
 | Native builds                                              | GitHub Actions green: Checks, Android APKs, iOS simulator |
 
 Unit tests and CI builds are not device validation. mDNS, TCP reachability,
@@ -77,19 +78,20 @@ npm test -- src/features/room/__tests__/roomEngine.test.ts -t "relays a signal"
 1. Install the same build on two phones and connect both to the same Wi-Fi or
    hotspot.
 2. Phone A: **Buat Ruangan**, enter a display name and room name. The host
-   screen shows the PIN, port, and instructions for finding the phone's IP.
+   screen shows the PIN, port, and a QR code containing the detected LAN IP.
 3. Phone B: **Gabung Ruangan**. If the room appears under “Ruangan di sekitar”,
-   select it and type the PIN. Otherwise type the host IP, port, and PIN
-   manually. Manual joining always works and does not depend on mDNS.
+   select it and type the PIN (the PIN is never broadcast over mDNS). Otherwise
+   scan the host's QR code or type the host IP, port, and PIN manually. Manual
+   joining always works and does not depend on mDNS.
 4. The room screen shows the participant list. Press **Mulai Suara** to open
    the microphone and connect to the other voice participants. Voice is wired
    but not yet verified on physical devices; GPS and map controls remain
    disabled and labeled **Belum tersedia**.
 
-The host IP is read from the phone's Wi-Fi settings for now; the app does not
-yet auto-detect its own LAN address. Common hotspot defaults are
-`192.168.43.1` (Android) and `172.20.10.1` (iPhone), but always confirm in
-system settings.
+The host's LAN IP is auto-detected on Android (Wi-Fi/hotspot interface) and
+shown in the QR code; if detection fails, the QR falls back to the common
+hotspot default `192.168.43.1` with a visible warning, and guests can always
+use room discovery or manual IP/port/PIN instead.
 
 ## Repository layout
 
@@ -110,7 +112,8 @@ docs/VOICE_AND_BLUETOOTH.md     audio mesh, mic lifecycle, Bluetooth limits
 ## Limits and honesty
 
 - **No internet at runtime.** No cloud signaling, analytics, remote fonts, CDN
-  assets, or remote map tiles.
+  assets, or remote map tiles. The live map is an offline radar computed from
+  room GPS coordinates.
 - **No encryption claims.** The PIN gates joining only. Signaling and location
   are plaintext on the LAN. Do not use Konvoi on a network you do not trust.
 - **No STUN/TURN.** Voice uses `iceServers: []`; if ICE fails, the app must show

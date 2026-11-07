@@ -59,7 +59,12 @@ export class LocationService {
     }
 
     if (!KonvoiLocationModule) {
-      // In test or non-Android environment, mark active without native crash
+      if (Platform.OS === 'ios') {
+        // Real iOS device: no native location module yet. Do not fake an
+        // active GPS state — the UI must not claim we are broadcasting.
+        return false;
+      }
+      // Test/non-Android environment: stay active without a native crash.
       this.active = true;
       return true;
     }

@@ -1,5 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Required by Android for any TCP/WebRTC socket, including LAN-only
+         traffic. The app never contacts the internet: no CDN, no tiles,
+         no cloud signaling. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- mDNS discovery and local room traffic; no internet access at runtime. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

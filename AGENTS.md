@@ -4,16 +4,17 @@ Konvoi is a **voice-first** React Native app: the host phone runs a room server 
 
 **Read `docs/SPEC.md` before implementing.** It is the authoritative product/technical spec (screens, protocol, acceptance criteria) and is not auto-loaded. This file covers repo state, commands, and traps.
 
-## Repo state (verified 2026-10-28)
+## Repo state (verified 2026-11-07)
 
 - React Native **0.88.1** + TypeScript 6, package `Konvoi`, Android/iOS id `com.konvoi`, mDNS `_konvoi._tcp`.
 - Implemented and unit-tested: NDJSON framing, typed protocol + validators, host room engine (membership, voice roster, signaling relay, location sharing), deterministic mesh peer planning, host/guest room sessions.
 - Implemented but **device-unverified**: `react-native-tcp-socket` TCP adapter, `react-native-zeroconf` mDNS discovery/advertising, `react-native-webrtc` audio mesh, app controller, screens, and internal navigation.
-- Not implemented: geolocation, MapLibre offline map pack, Bluetooth route UI. GPS/map controls are visibly disabled and labeled "Belum tersedia"; don't fake their status.
-- Voice is wired but unproven until GitHub CI compiles `react-native-webrtc` and two physical phones pass audio on a WAN-less network. Don't claim voice works before that.
-- Host local IP is not auto-detected: no local-IP module is installed. The host screen tells users to read it from Wi-Fi settings and lists common hotspot defaults. Manual IP/port/PIN is the supported fallback.
-- `README.md`, `docs/NETWORKING.md`, and `docs/VOICE_AND_BLUETOOTH.md` describe the real project. `docs/MAPS_OFFLINE.md` is still to be written when the map lands.
-- No git repo and `git` is not installed here. Don't run git commands or assume branches/diffs.
+- Geolocation is **implemented on Android** via `KonvoiLocationModule` (foreground `LocationManager` updates). On iOS there is no native module: `locationService.startTracking` returns `false` and the UI must not fake an active GPS state.
+- The live map is an **offline relative radar** (`KonvoiMapViewManager.kt`): fully inline HTML/JS in a WebView, no tile servers, no CDN. A MapLibre/MBTiles offline pack is still planned; `docs/MAPS_OFFLINE.md` is still to be written.
+- QR join uses a **real encoder** (`qrcode-generator` npm dep) and ML Kit `GmsBarcodeScanning` (requires Google Play Services; camera permission is requested in `scanQrCode`). QR embeds the host's **detected LAN IP** (`getLocalIpAddress` native method) with the hotspot default as fallback plus a visible warning.
+- The PIN is **never advertised over mDNS**; discovered rooms require the guest to type the PIN. Auto-reconnect is capped (12 attempts, linear backoff up to 30 s).
+- Voice is wired but unproven until two physical phones pass audio on a WAN-less network. Don't claim voice works before that.
+- A `.git` folder exists and remote is `github.com/neosaragih/Konvoi` (main), but the **`git` binary is not installed on this machine** — commit/push via the GitHub Git Data API (`gh api`) or install Git for Windows. Do not hand-edit `.git`.
 - Local machine: Node 24 / npm 11, but **no JDK 17, Android SDK, Xcode, or CocoaPods**. Native builds run in **GitHub Actions**; this box is for lint, typecheck, and Jest only.
 
 ## Commands
@@ -30,7 +31,7 @@ Konvoi is a **voice-first** React Native app: the host phone runs a room server 
 - `.github/workflows/ci.yml` — `npm ci`, lint, typecheck, Jest on Ubuntu.
 - `.github/workflows/android.yml` — Ubuntu + JDK 17 + Android SDK, `./gradlew :app:assembleDebug :app:assembleRelease`, uploads `konvoi-debug-apk` (needs Metro) and `konvoi-dev-apk` (bundled JS, debug-signed). The dev APK is not production-signed.
 - `.github/workflows/ios.yml` — macOS + CocoaPods, unsigned simulator build, uploads `konvoi-ios-simulator`.
-- All three workflows run on GitHub and passed on `main` (2026-10-28): Checks, Android (debug + dev APK), iOS simulator. iOS device builds are still unverified.
+- All three workflows run on GitHub and passed on `main` (2026-11-07): Checks, Android (debug + dev APK), iOS simulator. iOS device builds are still unverified.
 - Android API 37 installs as `platforms;android-37.0`; `platforms;android-37` does not exist. AGP 9.2 resolves `compileSdk 37` to the `android-37.0` hash, so install that exact package.
 - `android/gradle.properties` keeps `android.newDsl=false` and `android.builtInKotlin=false` so third-party Gradle scripts using the old DSL still configure. Revisit before AGP 10.
 - No release signing is configured. Android release needs a keystore; iOS device/release builds need Apple certificates/profiles. Keep secrets in GitHub Secrets, never in the repo.
