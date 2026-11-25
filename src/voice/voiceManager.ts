@@ -38,6 +38,7 @@ interface Peer {
   reportedFailure: boolean;
   /** Handle for the ICE-connection timeout so it can be cleared on close. */
   iceTimeoutId: ReturnType<typeof setTimeout> | null;
+  onIceConnectionStateChange: () => void;
 }
 
 interface PendingSignal {
@@ -302,6 +303,7 @@ export class VoiceManager {
       pendingCandidates: [],
       reportedFailure: false,
       iceTimeoutId: null,
+      onIceConnectionStateChange: () => {},
     };
 
     pc.onicecandidate = event => {
@@ -310,7 +312,7 @@ export class VoiceManager {
       const { candidate } = event as unknown as {
         candidate?: RTCIceCandidate | null;
       };
-      if (!candidate) {
+      if (!candidate || !candidate.candidate) {
         return;
       }
       this.handlers.sendSignal(peerId, {
@@ -365,7 +367,7 @@ export class VoiceManager {
 
     // Also watch iceConnectionState: on some Android builds connectionState
     // may not update reliably, but iceConnectionState does.
-    pc.addEventListener('iceconnectionstatechange', () => {
+    peer.onIceConnectionStateChange = () => {
       const iceState = pc.iceConnectionState;
       if (iceState === 'connected' || iceState === 'completed') {
         if (peer.iceTimeoutId !== null) {
@@ -392,7 +394,11 @@ export class VoiceManager {
         }
         this.handlers.onPeerState?.(peerId, 'failed');
       }
-    });
+    };
+    pc.addEventListener(
+      'iceconnectionstatechange',
+      peer.onIceConnectionStateChange,
+    );
 
     pc.ontrack = event => {
       // RTCTrackEvent carries { track, streams, transceiver, receiver }.
@@ -461,6 +467,10 @@ export class VoiceManager {
     peer.pc.onicecandidate = null;
     peer.pc.onconnectionstatechange = null;
     peer.pc.ontrack = null;
+    peer.pc.removeEventListener(
+      'iceconnectionstatechange',
+      peer.onIceConnectionStateChange,
+    );
     try {
       peer.pc.close();
     } catch {

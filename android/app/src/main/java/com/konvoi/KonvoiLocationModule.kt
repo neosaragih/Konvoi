@@ -118,8 +118,13 @@ class KonvoiLocationModule(private val reactContext: ReactApplicationContext) :
             try {
                 val audioManager = reactContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
                 if (audioManager != null) {
-                    audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-                    audioManager.isSpeakerphoneOn = enabled
+                    if (enabled) {
+                        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+                        audioManager.isSpeakerphoneOn = true
+                    } else {
+                        audioManager.isSpeakerphoneOn = false
+                        audioManager.mode = AudioManager.MODE_NORMAL
+                    }
                     promise.resolve(true)
                 } else {
                     promise.reject("NO_AUDIO_MANAGER", "AudioManager tidak tersedia.")
@@ -202,17 +207,38 @@ class KonvoiLocationModule(private val reactContext: ReactApplicationContext) :
                     val ni = interfaces.nextElement()
                     if (!ni.isUp || ni.isLoopback) continue
                     val name = ni.name.lowercase()
+                    // Skip cellular, VPN, and tunnel interfaces so mobile data
+                    // never masks the local Wi-Fi or hotspot address.
+                    if (name.startsWith("rmnet") ||
+                        name.startsWith("ccmni") ||
+                        name.startsWith("pdp") ||
+                        name.startsWith("tun") ||
+                        name.startsWith("tap") ||
+                        name.startsWith("ppp") ||
+                        name.startsWith("dummy") ||
+                        name.startsWith("clat") ||
+                        name.startsWith("v4-")
+                    ) {
+                        continue
+                    }
+                    val isLanInterface =
+                        name.startsWith("swlan") ||
+                        name.startsWith("softap") ||
+                        name.startsWith("ap") ||
+                        name.startsWith("wlan") ||
+                        name.startsWith("eth") ||
+                        name.startsWith("rndis")
                     val addresses = ni.inetAddresses
                     while (addresses.hasMoreElements()) {
                         val addr = addresses.nextElement()
                         if (addr is Inet4Address && !addr.isLoopbackAddress) {
-                            if (name.startsWith("wlan") ||
-                                name.startsWith("ap") ||
-                                name.startsWith("eth")
-                            ) {
-                                if (preferred == null) preferred = addr.hostAddress
-                            } else if (fallback == null) {
-                                fallback = addr.hostAddress
+                            val host = addr.hostAddress ?: continue
+                            if (isLanInterface && addr.isSiteLocalAddress) {
+                                if (preferred == null) preferred = host
+                            } else if (isLanInterface && preferred == null) {
+                                preferred = host
+                            } else if (addr.isSiteLocalAddress && fallback == null) {
+                                fallback = host
                             }
                         }
                     }

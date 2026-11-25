@@ -184,6 +184,7 @@ export function useRoomApp(): RoomApp {
     host: string;
     port: string;
     roomId?: string;
+    confirmed?: boolean;
     voiceWasActive?: boolean;
     locationWasActive?: boolean;
   } | null>(null);
@@ -223,6 +224,15 @@ export function useRoomApp(): RoomApp {
     setVoiceActive(false);
     setVoiceBusy(false);
     setPeerStates({});
+
+    if (
+      Platform.OS === 'android' &&
+      NativeModules.KonvoiLocationModule?.setSpeakerphoneOn
+    ) {
+      NativeModules.KonvoiLocationModule.setSpeakerphoneOn(false).catch(
+        () => {},
+      );
+    }
 
     if (!notify) {
       return;
@@ -384,6 +394,9 @@ export function useRoomApp(): RoomApp {
           clearReconnectTimer();
           reconnectingRef.current = false;
           reconnectAttemptsRef.current = 0;
+          if (lastJoinedRef.current) {
+            lastJoinedRef.current.confirmed = true;
+          }
           setReconnecting(false);
           setBusy(false);
           setScreen('room');
@@ -450,7 +463,7 @@ export function useRoomApp(): RoomApp {
           locationService.stopTracking().catch(() => {});
           setLocationSharingActive(false);
 
-          if (lastJoinedRef.current && mountedRef.current) {
+          if (lastJoinedRef.current?.confirmed && mountedRef.current) {
             reconnectingRef.current = true;
             setReconnecting(true);
             setNotice(
@@ -461,6 +474,7 @@ export function useRoomApp(): RoomApp {
             sess?.close();
             triggerAutoReconnectRef.current();
           } else {
+            lastJoinedRef.current = null;
             setError(
               'Koneksi terputus. Pastikan kedua HP berada di Wi-Fi/hotspot yang sama, lalu coba lagi.',
             );
@@ -525,6 +539,15 @@ export function useRoomApp(): RoomApp {
       onPeerState: (peerId, state) => {
         if (mountedRef.current && voiceRef.current === manager) {
           setPeerStates(current => ({ ...current, [peerId]: state }));
+          if (
+            state === 'connected' &&
+            Platform.OS === 'android' &&
+            NativeModules.KonvoiLocationModule?.setSpeakerphoneOn
+          ) {
+            NativeModules.KonvoiLocationModule.setSpeakerphoneOn(true).catch(
+              () => {},
+            );
+          }
         }
       },
       onError: message => {
@@ -593,15 +616,6 @@ export function useRoomApp(): RoomApp {
       } catch {}
     }
 
-    if (
-      Platform.OS === 'android' &&
-      NativeModules.KonvoiLocationModule?.setSpeakerphoneOn
-    ) {
-      try {
-        await NativeModules.KonvoiLocationModule.setSpeakerphoneOn(true);
-      } catch {}
-    }
-
     if (!mountedRef.current || voiceRef.current !== manager) {
       manager.stop();
       if (voiceRef.current === manager) {
@@ -624,6 +638,17 @@ export function useRoomApp(): RoomApp {
           voiceRef.current = null;
         }
         return;
+      }
+
+      // Enable speakerphone after WebRTC initializes audio so Android's
+      // AudioDeviceModule does not reset the route back to the earpiece.
+      if (
+        Platform.OS === 'android' &&
+        NativeModules.KonvoiLocationModule?.setSpeakerphoneOn
+      ) {
+        NativeModules.KonvoiLocationModule.setSpeakerphoneOn(true).catch(
+          () => {},
+        );
       }
 
       if (hostSessionRef.current) {
@@ -930,6 +955,7 @@ export function useRoomApp(): RoomApp {
         host: hostAddress,
         port: String(port),
         roomId: input.roomId,
+        confirmed: false,
         voiceWasActive:
           lastJoinedRef.current?.voiceWasActive === true || voiceActive,
         locationWasActive:
@@ -988,7 +1014,11 @@ export function useRoomApp(): RoomApp {
       onRoomsChanged: nextRooms => {
         if (mountedRef.current) {
           setRooms(nextRooms);
-          if (reconnectingRef.current && lastJoinedRef.current) {
+          if (
+            reconnectingRef.current &&
+            lastJoinedRef.current?.confirmed &&
+            !guestSessionRef.current
+          ) {
             const target = lastJoinedRef.current;
             const match = nextRooms.find(r => r.roomId === target.roomId);
             if (match) {

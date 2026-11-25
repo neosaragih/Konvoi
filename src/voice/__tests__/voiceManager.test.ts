@@ -143,4 +143,25 @@ describe('VoiceManager', () => {
 
     manager.stop();
   });
+
+  it('ignores empty ICE candidate strings so end-of-candidates does not fail signaling', async () => {
+    const { signals, handlers } = createHandlers();
+    const manager = new VoiceManager(handlers);
+
+    await manager.start('a-self');
+    manager.syncPeers(['a-self', 'b-peer']);
+    await flushMicrotasks();
+
+    const [peer] = webrtc.__testing.getPeerConnections() as unknown as Array<{
+      onicecandidate: ((event: { candidate: unknown }) => void) | null;
+    }>;
+    peer.onicecandidate?.({
+      candidate: { candidate: '', sdpMid: '0', sdpMLineIndex: 0 },
+    });
+    peer.onicecandidate?.({ candidate: null });
+
+    expect(signals.filter(entry => entry.signal.kind === 'ice-candidate')).toEqual([]);
+
+    manager.stop();
+  });
 });
