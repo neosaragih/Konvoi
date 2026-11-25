@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, NativeModules, PermissionsAndroid, Platform } from 'react-native';
+import { Alert, AppState, NativeModules, PermissionsAndroid, Platform } from 'react-native';
 import { locationService } from '../location/locationService';
 import type { ClientRoomState } from '../features/room/clientState';
 import { HostTcpSession } from '../networking/hostTcpSession';
@@ -95,6 +95,8 @@ const JOIN_TIMEOUT_MS = 12_000;
 const RECONNECT_BASE_DELAY_MS = 3_500;
 const RECONNECT_MAX_DELAY_MS = 30_000;
 const RECONNECT_MAX_ATTEMPTS = 12;
+const WIFI_HOTSPOT_NOTICE =
+  'Wi-Fi dan Hotspot belum aktif. Nyalakan salah satu agar HP bisa terhubung ke rombongan Konvoi.';
 
 function trimmedLength(value: string): number {
   return value.trim().length;
@@ -279,6 +281,51 @@ export function useRoomApp(): RoomApp {
     }
   }, []);
 
+  const checkWifiOrHotspotReady = useCallback(
+    async (showPrompt: boolean): Promise<boolean> => {
+      if (
+        Platform.OS !== 'android' ||
+        !NativeModules.KonvoiLocationModule?.getNetworkStatus
+      ) {
+        return true;
+      }
+      try {
+        const status =
+          (await NativeModules.KonvoiLocationModule.getNetworkStatus()) as {
+            ready?: boolean;
+          };
+        if (status?.ready) {
+          setNotice(current =>
+            current === WIFI_HOTSPOT_NOTICE ? null : current,
+          );
+          return true;
+        }
+        setNotice(WIFI_HOTSPOT_NOTICE);
+        if (showPrompt) {
+          Alert.alert(
+            'Wi-Fi & Hotspot Belum Aktif',
+            'Nyalakan Wi-Fi atau Hotspot terlebih dahulu agar HP bisa membuat atau bergabung ke ruangan Konvoi.',
+            [
+              { text: 'Nanti', style: 'cancel' },
+              {
+                text: 'Buka Pengaturan',
+                onPress: () => {
+                  NativeModules.KonvoiLocationModule?.openNetworkSettings?.().catch(
+                    () => {},
+                  );
+                },
+              },
+            ],
+          );
+        }
+        return false;
+      } catch {
+        return true;
+      }
+    },
+    [],
+  );
+
   const disposeGuest = useCallback(() => {
     stopForegroundNotification();
     locationService.stopTracking();
@@ -333,8 +380,11 @@ export function useRoomApp(): RoomApp {
       if (next !== 'join') {
         stopDiscovery();
       }
+      if (next === 'create' || next === 'join') {
+        checkWifiOrHotspotReady(false).catch(() => {});
+      }
     },
-    [stopDiscovery],
+    [checkWifiOrHotspotReady, stopDiscovery],
   );
 
   const goBack = useCallback(() => {
@@ -728,8 +778,14 @@ export function useRoomApp(): RoomApp {
   }, [voiceActive, voiceRosterIds]);
 
   useEffect(() => {
+    checkWifiOrHotspotReady(false).catch(() => {});
+  }, [checkWifiOrHotspotReady]);
+
+  useEffect(() => {
     const subscription = AppState.addEventListener('change', state => {
-      if (state === 'background' || state === 'inactive') {
+      if (state === 'active') {
+        checkWifiOrHotspotReady(false).catch(() => {});
+      } else if (state === 'background' || state === 'inactive') {
         if (voiceRef.current) {
           startForegroundNotification(
             'Konvoi Interkom Aktif',
@@ -742,7 +798,7 @@ export function useRoomApp(): RoomApp {
       }
     });
     return () => subscription.remove();
-  }, [room?.roomName, room?.status, startForegroundNotification]);
+  }, [checkWifiOrHotspotReady, room?.roomName, room?.status, startForegroundNotification]);
 
   const createRoom = useCallback(
     async (input: CreateRoomInput) => {
@@ -754,6 +810,12 @@ export function useRoomApp(): RoomApp {
       const roomNameError = validateRoomName(input.roomName);
       if (roomNameError) {
         setError(roomNameError);
+        return;
+      }
+
+      const networkReady = await checkWifiOrHotspotReady(true);
+      if (!networkReady) {
+        setError(WIFI_HOTSPOT_NOTICE);
         return;
       }
 
@@ -867,7 +929,7 @@ export function useRoomApp(): RoomApp {
         }
       }
     },
-    [disposeHost, handleHostState, startForegroundNotification],
+    [checkWifiOrHotspotReady, disposeHost, handleHostState, startForegroundNotification],
   );
 
   const joinRoom = useCallback(
@@ -890,6 +952,14 @@ export function useRoomApp(): RoomApp {
       if (port === null) {
         setError('Port harus angka 1-65535.');
         return;
+      }
+
+      if (!reconnectingRef.current) {
+        const networkReady = await checkWifiOrHotspotReady(true);
+        if (!networkReady) {
+          setError(WIFI_HOTSPOT_NOTICE);
+          return;
+        }
       }
 
       disposeGuest();
@@ -969,7 +1039,7 @@ export function useRoomApp(): RoomApp {
         ...(input.roomId ? { roomId: input.roomId } : {}),
       });
     },
-    [disposeGuest, handleGuestState, locationSharingActive, voiceActive],
+    [checkWifiOrHotspotReady, disposeGuest, handleGuestState, locationSharingActive, voiceActive],
   );
 
   const leaveRoom = useCallback(async () => {

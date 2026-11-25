@@ -7,10 +7,12 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.media.AudioManager
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -254,6 +256,86 @@ class KonvoiLocationModule(private val reactContext: ReactApplicationContext) :
                 }
             } catch (e: Exception) {
                 promise.reject("IP_ERROR", e.message ?: "Gagal membaca alamat IP lokal.")
+            }
+        }
+    }
+
+    @ReactMethod
+    fun getNetworkStatus(promise: Promise) {
+        mainHandler.post {
+            try {
+                val wifiManager = reactContext.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                val wifiEnabled = wifiManager?.isWifiEnabled == true
+
+                var hotspotEnabled = false
+                if (wifiManager != null) {
+                    try {
+                        val method = wifiManager.javaClass.getDeclaredMethod("isWifiApEnabled")
+                        method.isAccessible = true
+                        hotspotEnabled = (method.invoke(wifiManager) as? Boolean) == true
+                    } catch (_: Exception) {
+                        // Hidden API may be restricted on some Android versions; fall back to interface scan.
+                    }
+                }
+
+                if (!hotspotEnabled) {
+                    try {
+                        val interfaces = NetworkInterface.getNetworkInterfaces()
+                        while (interfaces.hasMoreElements()) {
+                            val ni = interfaces.nextElement()
+                            if (!ni.isUp || ni.isLoopback) continue
+                            val name = ni.name.lowercase()
+                            val isApInterface =
+                                name.startsWith("swlan") ||
+                                name.startsWith("softap") ||
+                                name.startsWith("ap") ||
+                                name.startsWith("rndis") ||
+                                (name.startsWith("wlan") && !wifiEnabled)
+                            if (!isApInterface) continue
+                            val addresses = ni.inetAddresses
+                            while (addresses.hasMoreElements()) {
+                                val addr = addresses.nextElement()
+                                if (addr is Inet4Address && !addr.isLoopbackAddress) {
+                                    hotspotEnabled = true
+                                    break
+                                }
+                            }
+                            if (hotspotEnabled) break
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                val result = Arguments.createMap().apply {
+                    putBoolean("wifiEnabled", wifiEnabled)
+                    putBoolean("hotspotEnabled", hotspotEnabled)
+                    putBoolean("ready", wifiEnabled || hotspotEnabled)
+                }
+                promise.resolve(result)
+            } catch (e: Exception) {
+                promise.reject("NETWORK_STATUS_ERROR", e.message ?: "Gagal memeriksa status Wi-Fi dan hotspot.")
+            }
+        }
+    }
+
+    @ReactMethod
+    fun openNetworkSettings(promise: Promise) {
+        mainHandler.post {
+            try {
+                val intent = Intent(Settings.ACTION_WIFI_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                reactContext.startActivity(intent)
+                promise.resolve(true)
+            } catch (_: Exception) {
+                try {
+                    val fallbackIntent = Intent(Settings.ACTION_WIRELESS_SETTINGS).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    reactContext.startActivity(fallbackIntent)
+                    promise.resolve(true)
+                } catch (e: Exception) {
+                    promise.reject("SETTINGS_ERROR", e.message ?: "Gagal membuka pengaturan jaringan.")
+                }
             }
         }
     }
